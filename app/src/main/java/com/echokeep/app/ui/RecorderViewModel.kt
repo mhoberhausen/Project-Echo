@@ -3,8 +3,10 @@ package com.echokeep.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.echokeep.app.audio.AudioRecorder
+import com.echokeep.app.interpretation.TranscriptInterpreter
 import com.echokeep.app.model.RecorderUiState
 import com.echokeep.app.model.RecordingPhase
+import com.echokeep.app.model.TranscriptionModel
 import com.echokeep.app.transcription.Transcriber
 import com.echokeep.app.transcription.TranscriptCleaner
 import kotlinx.coroutines.Job
@@ -19,6 +21,7 @@ class RecorderViewModel(
     private val recorder: AudioRecorder,
     private val transcriber: Transcriber,
     private val cleaner: TranscriptCleaner,
+    private val interpreter: TranscriptInterpreter,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(RecorderUiState())
     val uiState: StateFlow<RecorderUiState> = _uiState.asStateFlow()
@@ -29,7 +32,12 @@ class RecorderViewModel(
         viewModelScope.launch {
             runCatching { recorder.start() }
                 .onSuccess {
-                    _uiState.value = RecorderUiState(phase = RecordingPhase.RECORDING)
+                    _uiState.update {
+                        RecorderUiState(
+                            phase = RecordingPhase.RECORDING,
+                            selectedModel = it.selectedModel,
+                        )
+                    }
                     startTimer()
                 }
                 .onFailure(::showError)
@@ -43,13 +51,15 @@ class RecorderViewModel(
         viewModelScope.launch {
             runCatching {
                 val audio = recorder.stop()
-                val original = transcriber.transcribe(audio)
+                val model = _uiState.value.selectedModel
+                val original = transcriber.transcribe(audio, model)
                 original to cleaner.clean(original)
             }.onSuccess { (original, cleaned) ->
                 _uiState.value = RecorderUiState(
                     phase = RecordingPhase.COMPLETE,
                     originalTranscript = original,
                     cleanedTranscript = cleaned,
+                    selectedModel = _uiState.value.selectedModel,
                 )
             }.onFailure(::showError)
         }
@@ -57,7 +67,32 @@ class RecorderViewModel(
 
     fun clear() {
         if (_uiState.value.phase != RecordingPhase.PROCESSING) {
-            _uiState.value = RecorderUiState()
+            _uiState.update { RecorderUiState(selectedModel = it.selectedModel) }
+        }
+    }
+
+    fun processTranscript() {
+        if (_uiState.value.phase != RecordingPhase.COMPLETE) return
+        _uiState.update { it.copy(phase = RecordingPhase.INTERPRETING, errorMessage = null) }
+        viewModelScope.launch {
+            runCatching { interpreter.interpret(_uiState.value.cleanedTranscript) }
+                .onSuccess { result ->
+                    _uiState.update { it.copy(phase = RecordingPhase.PROCESSED, processedMessage = result) }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            phase = RecordingPhase.COMPLETE,
+                            errorMessage = error.message ?: "Gemma could not process this transcript.",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun selectModel(model: TranscriptionModel) {
+        if (_uiState.value.phase == RecordingPhase.IDLE) {
+            _uiState.update { it.copy(selectedModel = model) }
         }
     }
 
@@ -86,6 +121,7 @@ class RecorderViewModel(
 
     override fun onCleared() {
         recorder.release()
+        interpreter.release()
         super.onCleared()
     }
 }

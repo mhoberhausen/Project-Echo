@@ -12,11 +12,14 @@ high-confidence filler words, and displays both the concise and original transcr
 - Recording timer and explicit idle/recording/processing/result/error states
 - Deterministic filler removal with unit coverage
 - No network permission and no Android/cloud speech-recognition fallback
-- `WhisperTranscriber` and JNI declaration ready for the native engine
+- Pinned `whisper.cpp` v1.9.1 native engine and JNI bridge
+- Bundled `tiny.en` and `base.en` models with Fast/Accurate selection
+- LiteRT-LM 0.16.1 integration for bundled Gemma 3 1B int4 transcript interpretation
 
-The UI and audio pipeline are usable now. Offline recognition requires packaging the
-`whisper.cpp` native library described below; until then, the app reports a setup error
-after recording instead of silently using a cloud service.
+The complete recording-to-transcript pipeline runs locally. The application does not
+request internet permission and never sends audio or transcript data off the device.
+The Process action also runs locally: Gemma returns a summary, intent, key points, and
+action items that are strictly validated before display.
 
 ## Build
 
@@ -26,21 +29,21 @@ Gradle with Android Studio's bundled JDK 25 while emitting Java 17-compatible ap
 bytecode. Install the Android 17/API 37 SDK platform before syncing. The app keeps
 `minSdk 26` and does not depend on an OS speech service.
 
-## Complete the whisper.cpp adapter
+## Native transcription
 
-1. Build current `whisper.cpp` Android shared libraries for `arm64-v8a` and name the
-   JNI-facing library `libwhisper_jni.so`.
-2. Package it under `app/src/main/jniLibs/arm64-v8a/` with its native dependencies.
-3. Implement the JNI method declared by
-   `com.echokeep.app.transcription.NativeWhisper.transcribe`, converting signed
-   16-bit PCM samples to normalized floats before invoking Whisper.
-4. Put `ggml-tiny.en.bin` in `app/src/main/assets/models/`. The app copies it into
-   private app storage on first use.
-5. Build and test on the arm64 Pixel in Airplane Mode.
+The build pins NDK 28.2.13676358, CMake 3.31.6, and upstream `whisper.cpp` v1.9.1.
+Only `arm64-v8a` is built because this MVP targets the Pixel 8 Pro. The JNI bridge
+converts captured signed 16-bit PCM to normalized floats, runs English inference on a
+background coroutine, and returns all generated text segments to Kotlin.
 
-The Kotlin boundary fails closed if the native library is absent. The next slice is to
-vendor a pinned `whisper.cpp` revision plus its JNI/CMake bridge so native builds are
-reproducible.
+`ggml-tiny.en.bin` and `ggml-base.en.bin` live in `app/src/main/assets/models/`.
+The selected model is copied to private app storage on first use. Model binaries are
+ignored by Git; on a fresh checkout, download both with:
+
+```powershell
+app\src\main\cpp\whisper.cpp\models\download-ggml-model.cmd tiny.en app\src\main\assets\models
+app\src\main\cpp\whisper.cpp\models\download-ggml-model.cmd base.en app\src\main\assets\models
+```
 
 ## Transcript cleanup policy
 
@@ -48,3 +51,11 @@ The cleaner removes standalone `um`, `uh`, `erm`, `er`, and `hmm`, collapses imm
 word repetitions, and normalizes spacing. It preserves ambiguous words such as `like`,
 `so`, and `well`, because deleting them blindly can change meaning. The original
 Whisper output is always retained and available in the UI.
+
+## On-device message processing
+
+The POC uses the generic `gemma3-1b-it-int4.litertlm` artifact through LiteRT-LM's CPU
+backend. Put the 584,417,280-byte model in `app/src/main/assets/models/` after accepting
+the Gemma license at https://huggingface.co/litert-community/Gemma3-1B-IT. The binary is
+ignored by Git and bundled directly into the APK. On first Process use it is copied to
+private app storage because LiteRT-LM requires a filesystem model path.

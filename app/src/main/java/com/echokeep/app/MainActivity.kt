@@ -12,6 +12,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.echokeep.app.audio.AndroidAudioRecorder
+import com.echokeep.app.interpretation.GemmaTranscriptInterpreter
 import com.echokeep.app.transcription.TranscriptCleaner
 import com.echokeep.app.transcription.WhisperTranscriber
 import com.echokeep.app.ui.EchoKeepTheme
@@ -26,6 +27,7 @@ class MainActivity : ComponentActivity() {
             recorder = AndroidAudioRecorder(),
             transcriber = WhisperTranscriber(applicationContext),
             cleaner = TranscriptCleaner(),
+            interpreter = GemmaTranscriptInterpreter(applicationContext),
         )
 
         setContent {
@@ -51,6 +53,8 @@ class MainActivity : ComponentActivity() {
                     },
                     onStop = recorderViewModel::stopRecording,
                     onClear = recorderViewModel::clear,
+                    onModelSelected = recorderViewModel::selectModel,
+                    onProcess = recorderViewModel::processTranscript,
                 )
             }
         }
