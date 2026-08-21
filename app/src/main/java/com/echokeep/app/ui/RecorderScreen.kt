@@ -39,6 +39,7 @@ fun RecorderScreen(
     onClear: () -> Unit,
     onModelSelected: (TranscriptionModel) -> Unit,
     onProcess: () -> Unit,
+    showAppTitle: Boolean = true,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -49,7 +50,9 @@ fun RecorderScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("Echo Keep", fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            if (showAppTitle) {
+                Text("Echo Keep", fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            }
             Text(statusText(state), modifier = Modifier.padding(top = 8.dp, bottom = 32.dp))
 
             when (state.phase) {

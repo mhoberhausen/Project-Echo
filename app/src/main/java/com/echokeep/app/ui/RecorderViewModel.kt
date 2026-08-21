@@ -91,7 +91,12 @@ class RecorderViewModel(
     }
 
     fun selectModel(model: TranscriptionModel) {
-        if (_uiState.value.phase == RecordingPhase.IDLE) {
+        if (_uiState.value.phase !in setOf(
+                RecordingPhase.RECORDING,
+                RecordingPhase.PROCESSING,
+                RecordingPhase.INTERPRETING,
+            )
+        ) {
             _uiState.update { it.copy(selectedModel = model) }
         }
     }

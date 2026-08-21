@@ -20,7 +20,6 @@ class GemmaTranscriptInterpreterTest {
             )
             assertTrue(result.summary.isNotBlank())
             assertTrue(result.intent != MessageIntent.UNKNOWN)
-            assertTrue(result.actionItems.isNotEmpty())
         } finally {
             interpreter.release()
         }

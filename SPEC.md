@@ -15,6 +15,98 @@ status: inbox
 
 Local Voice Interpreter is an offline-first Android application idea focused on turning spoken conversations into structured knowledge entirely on-device. Milestone 1 is intentionally narrow: prove the microphone -> local transcription -> local LLM -> structured JSON -> UI pipeline using Kotlin, Jetpack Compose, `whisper.cpp`, and LiteRT-LM without any cloud dependency.
 
+## Milestone 1 Implementation Status
+
+Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
+
+### Completed
+
+- [x] Kotlin, Jetpack Compose, MVVM, Coroutines, and StateFlow application foundation
+- [x] Microphone permission and 16 kHz mono PCM capture through `AudioRecord`
+- [x] Start/stop recording flow with a visible timer
+- [x] Fully local `whisper.cpp` transcription with bundled `tiny.en` and `base.en` models
+- [x] Deterministic filler-word cleanup with access to the original transcript
+- [x] Fully local LiteRT-LM inference with bundled Gemma 3 1B int4
+- [x] Structured response parsing for summary, intent, key points, and action items
+- [x] Resilient parsing when Gemma adds metadata or omits an empty `action_items` array
+- [x] Processed-result UI, including transcript disclosure and empty action-item handling
+- [x] No `INTERNET` permission, cloud API, account, or external transmission path
+- [x] Debug APK builds, installs, and launches on the target Pixel 8 Pro
+- [x] JVM parser regression tests and Pixel tests for Gemma inference and result rendering
+
+### Remaining
+
+- [ ] Add live or near-live partial transcript updates; the current MVP transcribes after Stop
+- [ ] Run and document the complete workflow in Airplane Mode
+- [ ] Run and document a two-minute recording stability test
+- [ ] Exercise all specified model, transcription, and malformed-JSON error paths
+- [ ] Tighten the prompt to require summaries of at most three sentences and exact name preservation
+
+## UI/UX Pivot: Mode-Based App Shell
+
+The light MVP pipeline remains intact, but the next UI foundation expands the original
+single-screen concept into a small app shell. This section supersedes the original
+single-screen UI constraint for new work while keeping persistence and Live Mode
+processing explicitly staged.
+
+### Home
+
+- [x] Present two prominent choices: **Manual Mode** and **Live Mode**.
+- [x] Use a bold diagonal split inspired by the supplied reference without copying its palette.
+- [x] Manual Mode opens the existing record -> stop -> transcribe -> Process workflow.
+- [x] Live Mode initially opens an explanatory placeholder until silence segmentation and
+  near-live transcript capture are implemented.
+
+### Navigation Drawer
+
+- [x] Open from a hamburger button at the top left of primary screens.
+- [x] Provide an All / Pending / Processed status filter shell.
+- [ ] Show chat sessions in a newest-first list.
+- [x] Keep Preferences anchored at the bottom and clear of system navigation insets.
+- [x] Use an honest empty state until persisted chats are implemented; do not display fake sessions.
+
+### Chat Sessions (staged)
+
+Each recording session will eventually own one chat instance with:
+
+- Stable identifier
+- User-editable or automatically generated name
+- Created and last-updated date/time
+- Manual or Live mode
+- Pending or Processed status
+- Transcript messages and structured Gemma results
+
+Session persistence, naming, filtering, and restoration belong to the conversation-history
+milestone and are not part of the first UI-shell implementation.
+
+### Preferences
+
+- [x] Light and dark appearance selection (in-memory for the current app session)
+- [x] Whisper transcription model selection (`tiny.en` or `base.en`)
+- [x] Minimum silence duration UI for a future Live Mode transcript segment
+- [x] Clearly label settings that are previews and are not yet applied
+- [ ] Persist preferences locally in a later slice; initial UI state may be in-memory
+
+### Android 17 System UI
+
+- [x] Keep the top app toolbar below the status/notification bar.
+- [x] Start the navigation drawer surface below the status bar so system icons do not
+  appear over drawer content.
+- [x] Keep drawer actions above the three-button navigation area.
+- [x] Apply an adaptive navigation-bar contrast scrim.
+- [x] Use dark system navigation icons in light mode and light icons in dark mode.
+- [x] Let the hamburger icon inherit the toolbar content color so it remains visible in
+  both themes.
+- [x] Manually verified the light and dark system-bar behavior on the Pixel 8 Pro.
+
+### UX Assumptions To Validate
+
+- Pending means a captured transcript that has not completed Gemma processing; Processed
+  means a structured Gemma result exists.
+- New sessions receive an automatic date/time-based name until explicit renaming is added.
+- Minimum silence duration defaults to 1.5 seconds and should later be tunable within a
+  practical range after on-device testing.
+
 ## Original Idea
 
 Source material was provided inline in chat as `spec.md`. The repository's current local `spec.md` contains a different spec, so this intake preserves the user-provided source below. A few arrows and checkmarks are normalized to ASCII so the page remains markdown-safe and stable in this repository.
@@ -480,11 +572,11 @@ Milestone 1 is complete when:
 
 [x] Local LLM produces structured output
 
-[x] Works completely offline
+[ ] Works completely offline (offline architecture is complete; Airplane Mode validation remains)
 
 [x] No cloud services required
 
-[x] No crashes during a 2-minute recording
+[ ] No crashes during a 2-minute recording (stability run remains)
 
 ---
 
@@ -584,12 +676,39 @@ No reviews yet.
 
 Initial version of the idea, structured through the Idea Intake workflow from a user-provided Milestone 1 spec.
 
+### v1 - Light MVP Implementation
+
+Implemented and device-tested the record -> local Whisper -> local Gemma -> structured
+result -> Compose UI pipeline. Added dual Whisper models, deterministic filler cleanup,
+resilient Gemma JSON parsing, and local regression/device coverage. Remaining
+Milestone 1 validation and near-live transcription are tracked above.
+
+### v2 - Mode-Based UI Foundation
+
+Added the diagonal Manual/Live mode chooser, shared app toolbar, navigation drawer,
+chat-filter and empty-history shells, Live Mode placeholder, and in-memory Preferences.
+Corrected Android 17 edge-to-edge handling for the status bar, drawer surface, bottom
+navigation area, adaptive system icon contrast, and light/dark hamburger visibility.
+Built, deployed, and manually verified the resulting UI on the Pixel 8 Pro.
+
 ## Decisions
 
-No decisions yet.
+- Bundle both Whisper models and Gemma directly in the APK for the personal-use MVP.
+- Target `arm64-v8a` and the Pixel 8 Pro for Milestone 1.
+- Keep inference on-device and omit the Android `INTERNET` permission.
+- Treat omitted `action_items` as an empty list while continuing to require summary,
+  intent, and key points.
+- Defer model downloads, persistence, history, search, and reminders to later milestones.
+- Use explicit Android edge-to-edge handling and theme-aware system icon appearance rather
+  than relying on platform defaults.
+- Keep unfinished Live Mode and chat-history functionality visible only as clearly labeled
+  placeholders; do not imply capture or persistence is active.
 
 ## Next Actions
 
-- Run the Idea Review workflow if you want evaluation of feasibility, technical risk, or MVP sharpness.
-- Clarify the Android integration path for `whisper.cpp` and LiteRT-LM in a future iteration.
-- Promote this into a Project artifact once implementation is an explicit commitment rather than an idea capture.
+- Validate the complete flow in Airplane Mode.
+- Run a two-minute recording stability test on the Pixel 8 Pro.
+- Decide whether near-live partial transcription remains in Milestone 1 or moves to the first post-MVP iteration.
+- Tighten the Gemma prompt and complete error-path testing.
+- Add local chat-session persistence, naming, timestamps, and real drawer filtering.
+- Persist appearance, transcription-model, and silence-duration preferences locally.
