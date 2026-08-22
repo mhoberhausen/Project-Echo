@@ -53,28 +53,60 @@ processing explicitly staged.
 
 - [x] Present two prominent choices: **Manual Mode** and **Live Mode**.
 - [x] Use a bold diagonal split inspired by the supplied reference without copying its palette.
+- [x] Use **Choose capture mode** as the sole Home prompt and devote most of the available
+  height to the Manual / Live selection surface.
 - [x] Manual Mode opens the existing record -> stop -> transcribe -> Process workflow.
 - [x] Live Mode initially opens an explanatory placeholder until silence segmentation and
   near-live transcript capture are implemented.
+- [x] Android Back returns from either mode to Home instead of exiting the app.
+
+### Manual Mode
+
+- [x] Replace the idle **Start listening** button with a large circular play control.
+- [x] Present the bundled Whisper choices as a simple **Fast** / **Accurate** toggle while
+  keeping the underlying `tiny.en` / `base.en` mapping internal to the app.
 
 ### Navigation Drawer
 
 - [x] Open from a hamburger button at the top left of primary screens.
-- [x] Provide an All / Pending / Processed status filter shell.
-- [ ] Show chat sessions in a newest-first list.
+- [x] Provide functional All / Pending / Processed session filters.
+- [x] Show persisted sessions in a newest-first list with local date/time, duration, and status.
 - [x] Keep Preferences anchored at the bottom and clear of system navigation insets.
-- [x] Use an honest empty state until persisted chats are implemented; do not display fake sessions.
+- [x] Use an honest empty state when no saved sessions match the active filter.
 
-### Chat Sessions (staged)
+### Session History
 
-Each recording session will eventually own one chat instance with:
+Each successful Manual transcription creates an app-private persisted session with:
 
-- Stable identifier
-- User-editable or automatically generated name
-- Created and last-updated date/time
-- Manual or Live mode
-- Pending or Processed status
-- Transcript messages and structured Gemma results
+- [x] Stable UUID identifier
+- [x] Automatically generated title, with repository support for future renaming
+- [x] Created and last-updated timestamps stored as UTC epoch milliseconds and displayed
+  in the device's local timezone
+- [x] Audio-derived duration
+- [x] Transcription model, cleaned transcript, and original transcript
+- [x] Processing status: Transcribed, Queued, Processing, Processed, or Failed
+- [x] Persisted processed text and local-LLM topic tags
+- [x] Full-content detail view from the navigation drawer
+- [x] Share through the Android Sharesheet using `ACTION_SEND` and `text/plain`
+- [x] Confirmed local deletion
+- [ ] Add UI for renaming and transcript editing; repository operations already invalidate
+  stale processed output and return an edited transcript to Pending
+
+Sessions are stored in an app-private SQLite database behind a `SessionRepository`
+interface. This keeps structured history local, updateable, and independent from the
+Compose UI while avoiding an additional annotation-processor toolchain for the POC.
+
+### Processing Pipeline Boundary
+
+- [x] Save the transcript before offering local LLM processing.
+- [x] Allow a Pending or Failed saved transcript to start/retry processing from its
+  session detail view; disable the action while Queued or Processing.
+- [x] Keep transcription history when Gemma processing fails.
+- [x] Persist explicit Queued, Processing, Processed, and Failed transitions.
+- [x] Mark a session Processed only after its processed text and tags are committed.
+- [ ] Move queued work to a durable background processor; the current Process action
+  executes the queue immediately in the foreground.
+- [ ] Add retry/cancel controls and a dedicated processing-queue view.
 
 Session persistence, naming, filtering, and restoration belong to the conversation-history
 milestone and are not part of the first UI-shell implementation.
@@ -584,9 +616,11 @@ Milestone 1 is complete when:
 
 Milestone 2
 
-- Conversation history
-- SQLite
-- Timestamped recordings
+- [x] Conversation/session history foundation
+- [x] App-private SQLite persistence
+- [x] UTC timestamps with local-time display
+- [ ] Rename and transcript-edit UI
+- [ ] Durable background processing queue
 
 Milestone 3
 
@@ -691,6 +725,23 @@ Corrected Android 17 edge-to-edge handling for the status bar, drawer surface, b
 navigation area, adaptive system icon contrast, and light/dark hamburger visibility.
 Built, deployed, and manually verified the resulting UI on the Pixel 8 Pro.
 
+### v3 - Capture Screen Refinements
+
+Reweighted Home around the Manual / Live selection surface, simplified its heading, and
+made Android Back return there from either mode. Replaced Manual Mode's idle action with
+a large circular play control and simplified model selection to Fast / Accurate. Built,
+deployed, and verified both navigation paths and the updated layouts on the Pixel 8 Pro.
+
+### v4 - Persistent Session History
+
+Added app-private SQLite session storage, UTC metadata, audio-derived duration, generated
+titles, explicit LLM processing states, persisted processed text and tags, and a repository
+boundary for future background processing. Connected newest-first history and functional
+status filters to the drawer, added a full session detail view, Android Sharesheet export,
+confirmed deletion, and direct Process/retry actions for saved transcripts. Unit, lint,
+build, and on-device SQLite/UI tests pass; a real recording, history/detail navigation,
+saved-session Gemma processing, sharing, and deletion were verified on the Pixel 8 Pro.
+
 ## Decisions
 
 - Bundle both Whisper models and Gemma directly in the APK for the personal-use MVP.
@@ -698,7 +749,10 @@ Built, deployed, and manually verified the resulting UI on the Pixel 8 Pro.
 - Keep inference on-device and omit the Android `INTERNET` permission.
 - Treat omitted `action_items` as an empty list while continuing to require summary,
   intent, and key points.
-- Defer model downloads, persistence, history, search, and reminders to later milestones.
+- Defer model downloads, search, reminders, rename/edit UI, and durable background queue
+  execution to later iterations.
+- Store session history in app-private SQLite behind a repository interface; keep UTC as
+  the storage representation and convert to the device timezone only for display.
 - Use explicit Android edge-to-edge handling and theme-aware system icon appearance rather
   than relying on platform defaults.
 - Keep unfinished Live Mode and chat-history functionality visible only as clearly labeled

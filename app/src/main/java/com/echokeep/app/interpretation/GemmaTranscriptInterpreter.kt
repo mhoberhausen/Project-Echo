@@ -62,9 +62,9 @@ class GemmaTranscriptInterpreter(private val context: Context) : TranscriptInter
 
     private fun prompt(transcript: String) = """
         Process the transcript below. Do not invent facts, dates, or tasks. Return only one JSON object with exactly this schema:
-        {"summary":"string","intent":"note|idea|reminder|task|conversation|question|unknown","key_points":["string"],"action_items":[{"text":"string","due_date":null}]}
+        {"summary":"string","intent":"note|idea|reminder|task|conversation|question|unknown","key_points":["string"],"action_items":[{"text":"string","due_date":null}],"tags":["short topic"]}
 
-        Use an empty array when there are no key points or action items. Preserve an explicit due date as spoken; otherwise use null.
+        Use an empty array when there are no key points, action items, or useful topic tags. Use at most five concise tags. Preserve an explicit due date as spoken; otherwise use null.
 
         TRANSCRIPT:
         $transcript
@@ -106,6 +106,7 @@ internal object GemmaResponseParser {
             intent = MessageIntent.fromWireValue(json.getString("intent")),
             keyPoints = points,
             actionItems = actions,
+            tags = json.optJSONArray("tags")?.strings()?.distinctBy(String::lowercase) ?: emptyList(),
         )
     }
 

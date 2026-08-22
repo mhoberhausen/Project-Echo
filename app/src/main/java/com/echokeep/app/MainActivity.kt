@@ -2,6 +2,7 @@ package com.echokeep.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
@@ -19,9 +20,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.echokeep.app.audio.AndroidAudioRecorder
+import com.echokeep.app.data.SQLiteSessionRepository
 import com.echokeep.app.interpretation.GemmaTranscriptInterpreter
 import com.echokeep.app.transcription.TranscriptCleaner
 import com.echokeep.app.transcription.WhisperTranscriber
+import com.echokeep.app.model.shareText
 import com.echokeep.app.ui.EchoKeepTheme
 import com.echokeep.app.ui.EchoKeepApp
 import com.echokeep.app.ui.RecorderViewModel
@@ -36,11 +39,13 @@ class MainActivity : ComponentActivity() {
             transcriber = WhisperTranscriber(applicationContext),
             cleaner = TranscriptCleaner(),
             interpreter = GemmaTranscriptInterpreter(applicationContext),
+            sessionRepository = SQLiteSessionRepository(applicationContext),
         )
 
         setContent {
             val recorderViewModel: RecorderViewModel = viewModel(factory = factory)
             val state by recorderViewModel.uiState.collectAsState()
+            val sessions by recorderViewModel.sessions.collectAsState()
             var darkTheme by remember { mutableStateOf(false) }
             var silenceSeconds by remember { mutableFloatStateOf(1.5f) }
             SideEffect {
@@ -59,6 +64,7 @@ class MainActivity : ComponentActivity() {
             EchoKeepTheme(darkTheme = darkTheme) {
                 EchoKeepApp(
                     recorderState = state,
+                    sessions = sessions,
                     darkTheme = darkTheme,
                     silenceSeconds = silenceSeconds,
                     onDarkThemeChanged = { darkTheme = it },
@@ -75,6 +81,17 @@ class MainActivity : ComponentActivity() {
                     onClear = recorderViewModel::clear,
                     onModelSelected = recorderViewModel::selectModel,
                     onProcess = recorderViewModel::processTranscript,
+                    onCancelRecording = recorderViewModel::cancelRecording,
+                    onDeleteSession = recorderViewModel::deleteSession,
+                    onProcessSession = recorderViewModel::processSavedSession,
+                    onShareSession = { session ->
+                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, session.title)
+                            putExtra(Intent.EXTRA_TEXT, session.shareText())
+                        }
+                        startActivity(Intent.createChooser(sendIntent, "Share session"))
+                    },
                 )
             }
         }

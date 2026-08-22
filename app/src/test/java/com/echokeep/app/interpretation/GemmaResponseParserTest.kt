@@ -48,4 +48,13 @@ class GemmaResponseParserTest {
 
         assertEquals(emptyList<com.echokeep.app.model.ActionItem>(), result.actionItems)
     }
+
+    @Test
+    fun parsesAndDeduplicatesTopicTags() {
+        val result = GemmaResponseParser.parse(
+            """{"summary":"Plan the trip.","intent":"idea","key_points":[],"action_items":[],"tags":["Travel","travel","Budget"]}"""
+        )
+
+        assertEquals(listOf("Travel", "Budget"), result.tags)
+    }
 }

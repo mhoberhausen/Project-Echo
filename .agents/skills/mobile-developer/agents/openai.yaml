@@ -1,0 +1,5 @@
+interface:
+  display_name: "Mobile Developer"
+  short_description: "Build robust native mobile application features"
+  brand_color: "#7C3AED"
+  default_prompt: "Use $mobile-developer to implement or review this mobile application feature."

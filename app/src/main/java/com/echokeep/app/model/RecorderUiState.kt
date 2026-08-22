@@ -19,6 +19,7 @@ data class ProcessedMessage(
     val intent: MessageIntent,
     val keyPoints: List<String>,
     val actionItems: List<ActionItem>,
+    val tags: List<String> = emptyList(),
 )
 
 data class RecorderUiState(
@@ -29,4 +30,5 @@ data class RecorderUiState(
     val errorMessage: String? = null,
     val selectedModel: TranscriptionModel = TranscriptionModel.ACCURATE,
     val processedMessage: ProcessedMessage? = null,
+    val sessionId: String? = null,
 )

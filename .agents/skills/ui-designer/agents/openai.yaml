@@ -1,0 +1,5 @@
+interface:
+  display_name: "UI Designer"
+  short_description: "Design and review accessible product interfaces"
+  brand_color: "#7C3AED"
+  default_prompt: "Use $ui-designer to design or review this interface for usability, consistency, and accessibility."

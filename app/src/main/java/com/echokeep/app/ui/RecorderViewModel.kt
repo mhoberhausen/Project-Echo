@@ -3,9 +3,13 @@ package com.echokeep.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.echokeep.app.audio.AudioRecorder
+import com.echokeep.app.data.SessionRepository
 import com.echokeep.app.interpretation.TranscriptInterpreter
 import com.echokeep.app.model.RecorderUiState
 import com.echokeep.app.model.RecordingPhase
+import com.echokeep.app.model.SessionMetadata
+import com.echokeep.app.model.SessionRecord
+import com.echokeep.app.model.SessionStatus
 import com.echokeep.app.model.TranscriptionModel
 import com.echokeep.app.transcription.Transcriber
 import com.echokeep.app.transcription.TranscriptCleaner
@@ -22,10 +26,19 @@ class RecorderViewModel(
     private val transcriber: Transcriber,
     private val cleaner: TranscriptCleaner,
     private val interpreter: TranscriptInterpreter,
+    private val sessionRepository: SessionRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(RecorderUiState())
     val uiState: StateFlow<RecorderUiState> = _uiState.asStateFlow()
+    val sessions: StateFlow<List<SessionRecord>> = sessionRepository.sessions
     private var timerJob: Job? = null
+    private var processingJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            runCatching { sessionRepository.refresh() }.onFailure(::showError)
+        }
+    }
 
     fun startRecording() {
         if (_uiState.value.phase == RecordingPhase.RECORDING) return
@@ -53,13 +66,23 @@ class RecorderViewModel(
                 val audio = recorder.stop()
                 val model = _uiState.value.selectedModel
                 val original = transcriber.transcribe(audio, model)
-                original to cleaner.clean(original)
-            }.onSuccess { (original, cleaned) ->
+                val cleaned = cleaner.clean(original)
+                val durationMillis = audio.samples.size * 1_000L / audio.sampleRateHz
+                val session = SessionMetadata.create(
+                    durationMillis = durationMillis,
+                    transcript = cleaned,
+                    originalTranscript = original,
+                    transcriptionModel = model,
+                )
+                sessionRepository.create(session)
+                session
+            }.onSuccess { session ->
                 _uiState.value = RecorderUiState(
                     phase = RecordingPhase.COMPLETE,
-                    originalTranscript = original,
-                    cleanedTranscript = cleaned,
+                    originalTranscript = session.originalTranscript,
+                    cleanedTranscript = session.transcript,
                     selectedModel = _uiState.value.selectedModel,
+                    sessionId = session.id,
                 )
             }.onFailure(::showError)
         }
@@ -71,22 +94,85 @@ class RecorderViewModel(
         }
     }
 
+    fun cancelRecording() {
+        if (_uiState.value.phase != RecordingPhase.RECORDING) return
+        timerJob?.cancel()
+        viewModelScope.launch {
+            runCatching { recorder.stop() }
+                .onSuccess {
+                    _uiState.update { RecorderUiState(selectedModel = it.selectedModel) }
+                }
+                .onFailure(::showError)
+        }
+    }
+
     fun processTranscript() {
         if (_uiState.value.phase != RecordingPhase.COMPLETE) return
-        _uiState.update { it.copy(phase = RecordingPhase.INTERPRETING, errorMessage = null) }
-        viewModelScope.launch {
-            runCatching { interpreter.interpret(_uiState.value.cleanedTranscript) }
-                .onSuccess { result ->
-                    _uiState.update { it.copy(phase = RecordingPhase.PROCESSED, processedMessage = result) }
+        val sessionId = _uiState.value.sessionId
+        if (sessionId == null) {
+            showError(IllegalStateException("Save this transcript before processing it."))
+            return
+        }
+        processSession(
+            sessionId = sessionId,
+            transcript = _uiState.value.cleanedTranscript,
+            updateRecorderState = true,
+        )
+    }
+
+    fun processSavedSession(sessionId: String) {
+        val session = sessions.value.firstOrNull { it.id == sessionId } ?: return
+        if (session.status in setOf(SessionStatus.QUEUED, SessionStatus.PROCESSING, SessionStatus.PROCESSED)) return
+        processSession(
+            sessionId = session.id,
+            transcript = session.transcript,
+            updateRecorderState = _uiState.value.sessionId == session.id,
+        )
+    }
+
+    private fun processSession(
+        sessionId: String,
+        transcript: String,
+        updateRecorderState: Boolean,
+    ) {
+        if (processingJob?.isActive == true) return
+        processingJob = viewModelScope.launch {
+            runCatching {
+                sessionRepository.updateStatus(sessionId, SessionStatus.QUEUED)
+                sessionRepository.updateStatus(sessionId, SessionStatus.PROCESSING)
+                if (updateRecorderState) {
+                    _uiState.update { it.copy(phase = RecordingPhase.INTERPRETING, errorMessage = null) }
                 }
-                .onFailure { error ->
-                    _uiState.update {
-                        it.copy(
-                            phase = RecordingPhase.COMPLETE,
-                            errorMessage = error.message ?: "Gemma could not process this transcript.",
-                        )
+                interpreter.interpret(transcript).also { result ->
+                    sessionRepository.saveProcessed(sessionId, result)
+                }
+            }
+                .onSuccess { result ->
+                    if (updateRecorderState) {
+                        _uiState.update { it.copy(phase = RecordingPhase.PROCESSED, processedMessage = result) }
                     }
                 }
+                .onFailure { error ->
+                    runCatching { sessionRepository.updateStatus(sessionId, SessionStatus.FAILED) }
+                    if (updateRecorderState) {
+                        _uiState.update {
+                            it.copy(
+                                phase = RecordingPhase.COMPLETE,
+                                errorMessage = error.message ?: "Gemma could not process this transcript.",
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
+    fun deleteSession(id: String) {
+        viewModelScope.launch {
+            runCatching { sessionRepository.delete(id) }
+                .onSuccess {
+                    if (_uiState.value.sessionId == id) clear()
+                }
+                .onFailure(::showError)
         }
     }
 
@@ -125,6 +211,7 @@ class RecorderViewModel(
     }
 
     override fun onCleared() {
+        processingJob?.cancel()
         recorder.release()
         interpreter.release()
         super.onCleared()

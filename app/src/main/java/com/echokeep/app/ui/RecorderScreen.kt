@@ -8,15 +8,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.Card
 import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.Icon
 import androidx.compose.material.OutlinedButton
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,9 +62,19 @@ fun RecorderScreen(
 
             when (state.phase) {
                 RecordingPhase.IDLE -> {
+                    Button(
+                        onClick = onRecord,
+                        modifier = Modifier.size(148.dp),
+                        shape = CircleShape,
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = "Start listening",
+                            modifier = Modifier.size(76.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(32.dp))
                     ModelSelector(state.selectedModel, onModelSelected)
-                    Spacer(Modifier.height(24.dp))
-                    Button(onClick = onRecord) { Text("Start listening") }
                 }
                 RecordingPhase.RECORDING -> {
                     Text(formatElapsed(state.elapsedSeconds), fontSize = 42.sp, fontWeight = FontWeight.Medium)
@@ -87,17 +102,15 @@ private fun ModelSelector(
     selected: TranscriptionModel,
     onSelected: (TranscriptionModel) -> Unit,
 ) {
-    Text("Transcription model", fontWeight = FontWeight.Bold)
-    Spacer(Modifier.height(10.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        TranscriptionModel.values().forEach { model ->
+        TranscriptionModel.entries.forEach { model ->
             if (model == selected) {
                 Button(onClick = { onSelected(model) }) {
-                    Text("${model.displayName} · ${model.description}")
+                    Text(model.displayName)
                 }
             } else {
                 OutlinedButton(onClick = { onSelected(model) }) {
-                    Text("${model.displayName} · ${model.description}")
+                    Text(model.displayName)
                 }
             }
         }
