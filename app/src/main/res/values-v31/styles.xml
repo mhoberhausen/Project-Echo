@@ -5,7 +5,8 @@
         <item name="android:colorAccent">#00777D</item>
         <item name="android:navigationBarColor">#F4F8F7</item>
         <item name="android:statusBarColor">#F4F8F7</item>
-        <item name="android:windowBackground">#F4F8F7</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowSplashScreenBackground">@color/huh_night</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_huh_mark</item>
     </style>
 </resources>

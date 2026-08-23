@@ -17,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "EchoKeep"
+rootProject.name = "Huh"
 include ':app'

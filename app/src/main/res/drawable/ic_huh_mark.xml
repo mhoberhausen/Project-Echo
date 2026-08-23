@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M41,91 C22,85 12,69 14,50 C16,29 33,14 54,14 C77,14 94,32 94,55"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@color/huh_accent"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M52,84 C34,83 23,70 23,54 C23,37 36,24 53,24 C71,24 84,38 84,56"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@color/huh_accent"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M39,54 C39,45 45,39 54,39 C64,39 71,46 71,56 C71,66 64,73 54,73 L54,83"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@color/huh_accent"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path android:pathData="M54,90 A4,4 0,1 0,54,98 A4,4 0,1 0,54,90" android:fillColor="@color/huh_accent" />
+</vector>

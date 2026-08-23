@@ -24,7 +24,7 @@ int inference_thread_count() {
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_echokeep_app_transcription_NativeWhisper_transcribe(
+Java_com_huh_app_transcription_NativeWhisper_transcribe(
         JNIEnv *env,
         jobject,
         jstring model_path,

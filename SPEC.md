@@ -42,6 +42,46 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 - [ ] Exercise all specified model, transcription, and malformed-JSON error paths
 - [ ] Tighten the prompt to require summaries of at most three sentences and exact name preservation
 
+## Huh? Rebrand and Experience
+
+The user-facing product identity is now **Huh?**, guided by the promise **Never miss what
+was said.** The Android application ID, Kotlin package names, database, model pipeline,
+and existing installs intentionally remain unchanged. The supplied ear/question-mark logo
+geometry is implemented as reusable, tintable vectors rather than as a fixed-background
+bitmap.
+
+### Identity and language
+
+- [x] Rename the launcher label and visible app identity from Echo Keep to **Huh?**
+- [x] Add adaptive, round, and monochrome/themed launcher icon resources
+- [x] Add an Android 12+ launch splash using the Huh? mark
+- [x] Establish neutral light/dark surfaces, an accessible teal interactive primary, a
+  brighter logo accent, and independent semantic recording/error colors
+- [x] Rename **Manual Mode** to **Listen Now** and **Live Mode** to **Keep an Ear Out**
+- [x] Rename history to **What I Heard**, transcript surfaces to **What Was Said**, and
+  Gemma results to **What I Got From It**
+- [x] Rename the local Gemma action to **Make sense of this**
+- [x] Add concise **Processed on this device** privacy messaging
+- [x] Update Android Sharesheet text to use the new transcript and interpretation headings
+
+### Experience
+
+- [x] Integrate the Huh? mark into Home, the navigation drawer, Listen Now, and the
+  unavailable Keep an Ear Out screen
+- [x] Replace the idle play glyph with the branded listening control while retaining an
+  explicit accessible **Start listening** label
+- [x] Add a subtle recording-only ripple and keep idle rendering static
+- [x] Use distinct, human-readable states for recording, Whisper transcription, and Gemma
+  interpretation
+- [x] Preserve Fast / Accurate model selection and all recording, persistence, processing,
+  sharing, and deletion behavior
+- [x] Replace the Keep an Ear Out placeholder with explicit Off, Starting, Waiting,
+  Listening, Paused, and Error states
+- [x] Implement the foreground-service Active Listening foundation, local VAD,
+  conversation segmentation, durable audio handoff, and serial Whisper queue
+- [ ] Add a longer About/privacy explanation and persist Settings locally
+- [ ] Add notification-specific monochrome branding when notifications are implemented
+
 ## UI/UX Pivot: Mode-Based App Shell
 
 The light MVP pipeline remains intact, but the next UI foundation expands the original
@@ -56,8 +96,8 @@ processing explicitly staged.
 - [x] Use **Choose capture mode** as the sole Home prompt and devote most of the available
   height to the Manual / Live selection surface.
 - [x] Manual Mode opens the existing record -> stop -> transcribe -> Process workflow.
-- [x] Live Mode initially opens an explanatory placeholder until silence segmentation and
-  near-live transcript capture are implemented.
+- [x] Keep an Ear Out opens the Active Listening control surface and reflects the
+  foreground service state.
 - [x] Android Back returns from either mode to Home instead of exiting the app.
 
 ### Manual Mode
@@ -68,7 +108,10 @@ processing explicitly staged.
 
 ### Navigation Drawer
 
-- [x] Open from a hamburger button at the top left of primary screens.
+- [x] Open from a hamburger button on Home only.
+- [x] Use a standard back arrow on Listen Now, Keep an Ear Out, Settings, saved-session
+  detail, and future child screens; toolbar Back and Android Back both return Home.
+- [x] Keep capture selection on Home instead of duplicating a **Listen** action in the drawer.
 - [x] Provide functional All / Pending / Processed session filters.
 - [x] Show persisted sessions in a newest-first list with local date/time, duration, and status.
 - [x] Keep Preferences anchored at the bottom and clear of system navigation insets.
@@ -115,9 +158,16 @@ milestone and are not part of the first UI-shell implementation.
 
 - [x] Light and dark appearance selection (in-memory for the current app session)
 - [x] Whisper transcription model selection (`tiny.en` or `base.en`)
-- [x] Minimum silence duration UI for a future Live Mode transcript segment
-- [x] Clearly label settings that are previews and are not yet applied
-- [ ] Persist preferences locally in a later slice; initial UI state may be in-memory
+- [x] Advanced Settings child page for Active Listening timing and eligibility, with a
+  one-tap **Reset to defaults** action
+- [x] Configurable 5–60 second continuous no-speech ending threshold, defaulting to 15
+  seconds and persisted locally for the next Active Listening activation
+- [x] Persist the Active Listening Whisper-model choice locally
+- [x] Persist advanced defaults of 400 ms sustained speech to start, two seconds of pre-roll,
+  and three seconds of cumulative VAD-positive speech before transcription
+- [x] Persist optional transcript cleanup, defaulting to discarding results shorter than
+  three cleaned words; this remains separate from user-controlled Gemma interpretation
+- [ ] Persist light/dark appearance locally; it remains in-memory for the current app session
 
 ### Android 17 System UI
 
@@ -136,8 +186,75 @@ milestone and are not part of the first UI-shell implementation.
 - Pending means a captured transcript that has not completed Gemma processing; Processed
   means a structured Gemma result exists.
 - New sessions receive an automatic date/time-based name until explicit renaming is added.
-- Minimum silence duration defaults to 1.5 seconds and should later be tunable within a
-  practical range after on-device testing.
+- Conversation-ending silence defaults to 15 seconds and is tunable from 5–60 seconds;
+  Pixel testing should determine whether that range and default feel natural.
+
+## Keep an Ear Out — Active Listening
+
+Keep an Ear Out is Huh?'s explicitly enabled, continuous local conversation-capture mode.
+Its responsibility ends when a normal saved session reaches a ready transcript. Gemma is
+not referenced by the Active Listening service or transcription queue and is only invoked
+after the user selects **Make sense of this** from a ready session.
+
+### Implemented foundation
+
+- [x] Android microphone foreground service with `START_NOT_STICKY`; no boot receiver or
+  automatic restart after reboot
+- [x] Required microphone foreground-service and notification permissions, requested from
+  the visible UI before activation
+- [x] Persistent Huh?-branded Waiting, Listening, Paused, and Error notifications
+- [x] Notification and in-app Pause, Resume/Try Again, and Turn Off controls
+- [x] Service-owned 16 kHz mono PCM microphone stream that continues when the activity is
+  backgrounded
+- [x] Replaceable `VoiceActivityDetector` abstraction with a provisional fully local,
+  multi-feature adaptive heuristic detector
+- [x] Explicit `WAITING -> LISTENING -> POSSIBLE_END -> FINALIZING -> WAITING` state
+  machine with detailed transition logging
+- [x] Central defaults of 400 ms sustained speech to start, 15 seconds of continuous
+  VAD-observed silence to end, two seconds of pre-roll, and three seconds of cumulative
+  detected speech to qualify for transcription
+- [x] Three-second in-memory rolling buffer that is only written after a conversation is
+  detected
+- [x] Minimum-speech discard behavior and meaningful-capture finalization on Pause or Turn Off
+- [x] App-private PCM persistence before queue submission, so capture returns to Waiting
+  without waiting for Whisper
+- [x] Durable serial WorkManager chain for Whisper transcription, with a visible local-
+  transcription notification, automatic continuation after backgrounding/process death,
+  persisted audio-path recovery, and retry from failed-session detail
+- [x] Delete app-private conversation audio only after cleaned and original transcripts are
+  committed successfully; failed/interrupted work retains audio for retry
+- [x] Determine transcription eligibility from cumulative VAD-positive speech rather than
+  total audio-file duration; silence never makes a capture eligible for Whisper
+- [x] Apply the configurable minimum-word threshold after local Whisper cleanup but before
+  committing a ready session; undersized sessions and their temporary audio are removed
+- [x] Persist local timing instrumentation for total audio, cumulative speech, distinct
+  speech segments, longest internal silence followed by resumed speech, and the configured
+  conversation-ending threshold
+- [x] Source-aware shared session model (`MANUAL`, `ACTIVE_LISTENING`, future `XIAO`) and
+  SQLite v1-to-v2 migration preserving existing sessions as Manual
+- [x] Distinct Transcribing, Transcription failed, transcript-ready, and Gemma processing
+  states in history; Gemma is never invoked automatically
+- [x] Active Listening screen, Home status copy, queued-transcription indicator, privacy
+  explanation, and session source label
+- [x] Unit coverage for detector timing and transitions, pause/off behavior, rolling-buffer
+  ordering, heuristic VAD features, and serial queue concurrency
+- [x] No cloud dependency or `INTERNET` permission
+
+### Device validation and tuning still required
+
+- [ ] Validate foreground capture with the app backgrounded and screen off on the Pixel 8 Pro
+- [ ] Validate notification Pause, Resume, Turn Off, permission denial/revocation, and
+  microphone privacy controls on Android 17
+- [ ] Tune false positives and misses against real speech, television, music, HVAC, traffic,
+  keyboards, and route changes; the heuristic VAD is replaceable and not yet equivalent to
+  a trained human-speech classifier
+- [ ] Evaluate bundling Silero VAD behind the existing abstraction if real-world tuning is
+  insufficient
+- [ ] Measure extended battery use, thermals, Whisper backlog behavior, and long-conversation
+  memory/storage limits
+- [ ] Validate Bluetooth/headset route changes, competing microphone users, low storage,
+  process death recovery, and the no-auto-start-after-reboot behavior
+- [ ] Run and document the full Active Listening workflow in Airplane Mode
 
 ## Original Idea
 
@@ -742,6 +859,18 @@ confirmed deletion, and direct Process/retry actions for saved transcripts. Unit
 build, and on-device SQLite/UI tests pass; a real recording, history/detail navigation,
 saved-session Gemma processing, sharing, and deletion were verified on the Pixel 8 Pro.
 
+### v5 - Huh? Rebrand
+
+Rebranded all user-facing Android identity to Huh? without changing the application ID or
+local data model. Added the ear/question-mark mark as reusable Compose and Android vector
+art, adaptive/round/themed launcher icons, an Android 12+ splash, a teal-and-neutral light/
+dark token system, human-friendly capture/history/result language, local-processing privacy
+copy, and a subtle recording-only ripple. Kept Keep an Ear Out clearly marked as coming
+later so the presentation does not overstate the app's current capabilities. Built and
+installed the rebrand on the Pixel 8 Pro, passed the focused Compose UI suite, and visually
+verified the launcher identity, light Home and Listen Now screens, drawer/system insets,
+dark Settings, and dark Keep an Ear Out placeholder on 2026-08-22.
+
 ## Decisions
 
 - Bundle both Whisper models and Gemma directly in the APK for the personal-use MVP.
@@ -757,6 +886,12 @@ saved-session Gemma processing, sharing, and deletion were verified on the Pixel
   than relying on platform defaults.
 - Keep unfinished Live Mode and chat-history functionality visible only as clearly labeled
   placeholders; do not imply capture or persistence is active.
+- Use **Huh?** for user-facing and source-facing identity. Kotlin code uses the
+  `com.huh.app` namespace and `Huh*` class/composable names. Retain only the legacy
+  `com.echokeep.app` application ID and `echo_keep.db` filename so existing installations
+  and saved sessions continue updating in place.
+- Use the supplied logo geometry as tintable vector art; reserve bright cyan for branding
+  and use a darker teal for accessible light-theme controls.
 
 ## Next Actions
 
@@ -764,5 +899,5 @@ saved-session Gemma processing, sharing, and deletion were verified on the Pixel
 - Run a two-minute recording stability test on the Pixel 8 Pro.
 - Decide whether near-live partial transcription remains in Milestone 1 or moves to the first post-MVP iteration.
 - Tighten the Gemma prompt and complete error-path testing.
-- Add local chat-session persistence, naming, timestamps, and real drawer filtering.
+- Add session rename and transcript-edit UI on top of the existing local persistence.
 - Persist appearance, transcription-model, and silence-duration preferences locally.

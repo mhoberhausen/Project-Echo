@@ -1,6 +1,6 @@
-# Echo Keep
+# Huh?
 
-Echo Keep is an offline-first Android voice capture MVP. It records 16 kHz mono PCM,
+Huh? is an offline-first Android conversation-memory MVP. It records 16 kHz mono PCM,
 transcribes speech through a replaceable `whisper.cpp` boundary, removes only
 high-confidence filler words, and displays both the concise and original transcript.
 
