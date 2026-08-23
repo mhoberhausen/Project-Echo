@@ -8,6 +8,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import com.huh.app.active.ActiveListeningSnapshot
+import com.huh.app.active.ActiveListeningState
 import com.huh.app.model.RecorderUiState
 import com.huh.app.model.SessionRecord
 import com.huh.app.model.SessionStatus
@@ -89,13 +92,50 @@ class HuhAppSessionTest {
         composeRule.onNodeWithContentDescription("Open navigation").performClick()
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Advanced conversation settings").performClick()
+        composeRule.onNodeWithText("Terms used here").assertIsDisplayed()
+        composeRule.onNodeWithText("VAD — Voice Activity Detection").assertIsDisplayed()
         composeRule.onNodeWithText("400 ms of sustained speech").assertIsDisplayed()
         composeRule.onNodeWithText("At least 3 seconds of detected speech").assertIsDisplayed()
         composeRule.onNodeWithText("End after 15 seconds without speech").assertIsDisplayed()
-        composeRule.onNodeWithText("Reset to defaults").performClick()
+        composeRule.onNodeWithText("Reset to defaults").performScrollTo().performClick()
         composeRule.runOnIdle { assertEquals(true, resetRequested) }
         composeRule.onNodeWithContentDescription("Navigate back").performClick()
         composeRule.onNodeWithText("Appearance").assertIsDisplayed()
+    }
+
+    @Test
+    fun drawerShowsTemporarySessionWhileActiveCaptureIsRecording() {
+        composeRule.setContent {
+            HuhTheme {
+                HuhApp(
+                    recorderState = RecorderUiState(),
+                    sessions = emptyList(),
+                    darkTheme = false,
+                    silenceSeconds = 15f,
+                    onDarkThemeChanged = {},
+                    onSilenceSecondsChanged = {},
+                    onRecord = {},
+                    onStop = {},
+                    onClear = {},
+                    onModelSelected = {},
+                    onProcess = {},
+                    onCancelRecording = {},
+                    onDeleteSession = {},
+                    onProcessSession = {},
+                    onShareSession = {},
+                    activeListening = ActiveListeningSnapshot(
+                        state = ActiveListeningState.LISTENING,
+                        captureStartedAtUtcMillis = 1_704_067_200_000,
+                    ),
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
+        composeRule.onNodeWithText("Conversation in progress").assertIsDisplayed()
+        composeRule.onNodeWithText("Recording locally · Not yet transcribed").assertIsDisplayed()
+        composeRule.onNodeWithText("Recording…").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("I’m listening…").assertIsDisplayed()
     }
 
     @Test

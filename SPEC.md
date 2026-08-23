@@ -160,6 +160,8 @@ milestone and are not part of the first UI-shell implementation.
 - [x] Whisper transcription model selection (`tiny.en` or `base.en`)
 - [x] Advanced Settings child page for Active Listening timing and eligibility, with a
   one-tap **Reset to defaults** action
+- [x] Explain Active Listening terminology such as VAD (Voice Activity Detection) before
+  using its acronym in the Advanced Settings controls
 - [x] Configurable 5–60 second continuous no-speech ending threshold, defaulting to 15
   seconds and persisted locally for the next Active Listening activation
 - [x] Persist the Active Listening Whisper-model choice locally
@@ -213,7 +215,7 @@ after the user selects **Make sense of this** from a ready session.
 - [x] Central defaults of 400 ms sustained speech to start, 15 seconds of continuous
   VAD-observed silence to end, two seconds of pre-roll, and three seconds of cumulative
   detected speech to qualify for transcription
-- [x] Three-second in-memory rolling buffer that is only written after a conversation is
+- [x] Two-second in-memory rolling buffer that is only written after a conversation is
   detected
 - [x] Minimum-speech discard behavior and meaningful-capture finalization on Pause or Turn Off
 - [x] App-private PCM persistence before queue submission, so capture returns to Waiting
@@ -236,6 +238,12 @@ after the user selects **Make sense of this** from a ready session.
   states in history; Gemma is never invoked automatically
 - [x] Active Listening screen, Home status copy, queued-transcription indicator, privacy
   explanation, and session source label
+- [x] Temporary **Conversation in progress** row in pending session history while Active
+  Listening is writing audio; discarded captures disappear without creating history
+- [x] Apply changed timing preferences to an active waiting service after a short debounce,
+  or after the current conversation finishes, and reload all timing/VAD state on Resume
+- [x] VAD speech hangover, guarded adaptive-noise updates, and periodic local diagnostic
+  logging to make real-device misses observable without retaining additional audio
 - [x] Unit coverage for detector timing and transitions, pause/off behavior, rolling-buffer
   ordering, heuristic VAD features, and serial queue concurrency
 - [x] No cloud dependency or `INTERNET` permission

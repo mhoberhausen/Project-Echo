@@ -699,9 +699,30 @@ private fun AdvancedPreferencesScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)
     ) {
         Text(
-            "Timing changes affect the next time Keep an Ear Out starts. Transcript cleanup applies to pending work.",
+            "Timing changes apply while waiting for speech or after the current conversation ends. " +
+                "Transcript cleanup applies to pending work.",
             color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
         )
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            backgroundColor = MaterialTheme.colors.primary.copy(alpha = 0.08f),
+            elevation = 0.dp,
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Terms used here", fontWeight = FontWeight.Bold)
+                Text(
+                    "VAD — Voice Activity Detection",
+                    modifier = Modifier.padding(top = 8.dp),
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Local analysis that distinguishes human speech from silence and other sounds.",
+                    modifier = Modifier.padding(top = 4.dp),
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.74f),
+                )
+            }
+        }
         Divider(Modifier.padding(vertical = 20.dp))
         PreferenceHeading("Conversation start")
         AdvancedSlider(

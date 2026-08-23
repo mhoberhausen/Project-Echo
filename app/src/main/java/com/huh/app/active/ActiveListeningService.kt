@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -52,6 +53,7 @@ class ActiveListeningService : Service() {
     private var vadFramesSinceLog = 0
     private var vadSpeechFramesSinceLog = 0
     @Volatile private var configurationRefreshPending = false
+    @Volatile private var configurationRefreshNotBeforeElapsedRealtime = 0L
 
     private val container get() = (application as HuhApplication).container
 
@@ -73,6 +75,8 @@ class ActiveListeningService : Service() {
                     ACTION_TURN_OFF -> turnOff()
                     ACTION_REFRESH_CONFIGURATION -> {
                         configurationRefreshPending = true
+                        configurationRefreshNotBeforeElapsedRealtime =
+                            SystemClock.elapsedRealtime() + CONFIGURATION_REFRESH_DEBOUNCE_MS
                         Log.i(TAG, "Capture configuration refresh requested")
                     }
                 }
@@ -132,7 +136,9 @@ class ActiveListeningService : Service() {
     }
 
     private fun onAudioFrame(frame: ShortArray) {
-        if (writer == null && configurationRefreshPending) reloadCaptureConfiguration()
+        if (writer == null && configurationRefreshPending &&
+            SystemClock.elapsedRealtime() >= configurationRefreshNotBeforeElapsedRealtime
+        ) reloadCaptureConfiguration()
         val hadWriter = writer != null
         if (!hadWriter) preRoll.append(frame)
         val activity = vad.process(frame)
@@ -313,6 +319,7 @@ class ActiveListeningService : Service() {
         const val ACTION_REFRESH_CONFIGURATION = "com.huh.app.active.REFRESH_CONFIGURATION"
         private const val TAG = "ActiveListening"
         private const val VAD_LOG_INTERVAL_FRAMES = 250
+        private const val CONFIGURATION_REFRESH_DEBOUNCE_MS = 300L
     }
 }
 
