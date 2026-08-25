@@ -18,4 +18,3 @@ enum class ConnectionState : uint8_t {
 const char* connectionStateName(ConnectionState state);
 
 }  // namespace huh::runtime
-

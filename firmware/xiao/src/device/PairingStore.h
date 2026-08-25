@@ -11,4 +11,3 @@ class PairingStore {
 };
 
 }  // namespace huh::device
-

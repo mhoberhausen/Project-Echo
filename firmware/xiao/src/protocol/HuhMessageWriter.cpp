@@ -14,4 +14,3 @@ bool HuhMessageWriter::write(const std::vector<uint8_t>& message) {
 }
 
 }  // namespace huh::protocol
-

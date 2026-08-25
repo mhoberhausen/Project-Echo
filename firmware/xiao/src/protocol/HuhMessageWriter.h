@@ -24,4 +24,3 @@ class HuhMessageWriter {
 };
 
 }  // namespace huh::protocol
-

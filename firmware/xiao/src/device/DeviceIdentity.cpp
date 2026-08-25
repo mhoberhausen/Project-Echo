@@ -29,4 +29,3 @@ protocol::StreamUuid DeviceIdentity::createStreamUuid() {
 }
 
 }  // namespace huh::device
-

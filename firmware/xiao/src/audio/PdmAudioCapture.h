@@ -20,4 +20,3 @@ class PdmAudioCapture {
 };
 
 }  // namespace huh::audio
-

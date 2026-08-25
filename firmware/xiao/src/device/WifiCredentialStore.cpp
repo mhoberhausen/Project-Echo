@@ -57,4 +57,3 @@ bool WifiCredentialStore::clear() const {
 }
 
 }  // namespace huh::device
-

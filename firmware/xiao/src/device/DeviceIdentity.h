@@ -13,4 +13,3 @@ class DeviceIdentity {
 };
 
 }  // namespace huh::device
-

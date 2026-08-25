@@ -20,4 +20,3 @@ class WifiCredentialStore {
 };
 
 }  // namespace huh::device
-

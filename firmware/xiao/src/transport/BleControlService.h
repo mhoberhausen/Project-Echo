@@ -9,4 +9,3 @@ class BleControlService {
 };
 
 }  // namespace huh::transport
-
