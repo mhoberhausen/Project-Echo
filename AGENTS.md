@@ -1,11 +1,14 @@
-# Echo Keep Agent Guidance
+# Project Echo Agent Guidance
 
 ## Product Context
 
-Echo Keep is an offline-first Android voice-capture app. The core flow records speech,
+Project Echo is a monorepo for the user-facing **Huh?** product. The Android app lives in
+`mobile/android`, and XIAO ESP32S3 Sense firmware lives in `firmware/xiao`. Huh? is an
+offline-first voice-capture app. The core flow records speech,
 transcribes it locally with bundled Whisper models, removes filler words, and optionally
-processes the transcript locally with Gemma. Do not introduce cloud services, analytics,
-or the Android `INTERNET` permission unless the user explicitly changes that requirement.
+processes the transcript locally with Gemma. Do not introduce cloud services or analytics.
+Android may use `INTERNET` only for direct communication with the user-selected local Huh?
+Puck; audio, transcripts, and AI processing must remain local.
 
 The primary target device is a Pixel 8 Pro running Android 17. The UI is built with Kotlin
 and Jetpack Compose. Preserve the existing Manual / Live mode shell and clearly label
@@ -27,7 +30,7 @@ placeholder behavior that is not implemented.
 
 ## UI Expectations
 
-- Follow Android and Material interaction conventions while retaining Echo Keep's visual
+- Follow Android and Material interaction conventions while retaining Huh?'s visual
   identity.
 - Support light and dark themes, system insets, visible status/navigation controls, font
   scaling, semantic labels, and at least 48dp touch targets.
@@ -42,5 +45,11 @@ explicitly changes. For meaningful implementation changes, run tests, lint, and 
 build in proportion to the change. For UI changes, inspect the affected states on the
 connected Pixel when available and capture screenshots when visual confirmation matters.
 
-Preserve user changes and update `SPEC.md` when completed work materially changes the
+Preserve user changes and update `mobile/android/SPEC.md` when completed work materially changes the
 documented product scope or implementation status.
+
+## Build Locations
+
+- Run Gradle and Android CLI project commands from `mobile/android`.
+- Run PlatformIO commands from `firmware/xiao`.
+- Never commit `firmware/xiao/wifi.local.ini`, model binaries, or generated build output.
