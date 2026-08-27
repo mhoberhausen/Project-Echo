@@ -1,5 +1,7 @@
 #include "StreamingController.h"
 
+#include "DeviceConfig.h"
+
 namespace huh::runtime {
 
 bool StreamingController::begin(size_t queueCapacityFrames) {
@@ -17,7 +19,7 @@ bool StreamingController::startCapture(int clockPin, int dataPin) {
 
   captureRequested_.store(true);
   if (xTaskCreatePinnedToCore(captureTaskEntry, "pdm-capture", 4096, this,
-                              3, &captureTask_, 0) != pdPASS) {
+                              3, &captureTask_, config::kAudioCaptureCore) != pdPASS) {
     captureRequested_.store(false);
     capture_.end();
     setState(ConnectionState::kError);
@@ -64,7 +66,12 @@ void StreamingController::captureLoop() {
       break;
     }
     capturedFrames_.fetch_add(1);
-    queue_.tryPush(frame);
+    if (!recorder_.append(frame)) {
+      captureFailed_.store(true);
+      setState(ConnectionState::kError);
+      Serial.println("ERROR: microSD capture write failed.");
+      break;
+    }
   }
   capture_.end();
   captureTask_ = nullptr;

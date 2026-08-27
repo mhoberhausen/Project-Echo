@@ -21,6 +21,10 @@ enum class MessageType : uint8_t {
   kHeartbeat = 4,
   kStop = 5,
   kError = 6,
+  kAck = 7,
+  kFetch = 8,
+  kFileChunk = 9,
+  kFileEnd = 10,
 };
 
 enum class StopReason : uint8_t {
@@ -30,6 +34,7 @@ enum class StopReason : uint8_t {
   kStorageFailure = 4,
   kDeviceReboot = 5,
   kCaptureFailure = 6,
+  kControlLeaseExpired = 7,
   kUnknown = 255,
 };
 
@@ -60,6 +65,12 @@ bool encodeStop(const StreamUuid& stream, StopReason reason,
                 std::vector<uint8_t>& output);
 bool encodeError(uint16_t code, const std::string& safeMessage,
                  std::vector<uint8_t>& output);
+bool encodeAck(const StreamUuid& stream, std::vector<uint8_t>& output);
+bool encodeFileChunk(const StreamUuid& stream, uint32_t offset,
+                     const uint8_t* bytes, size_t length,
+                     std::vector<uint8_t>& output);
+bool encodeFileEnd(const StreamUuid& stream, uint32_t totalBytes,
+                   std::vector<uint8_t>& output);
 
 class AudioStreamSession {
  public:

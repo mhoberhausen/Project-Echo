@@ -92,6 +92,7 @@ void TrustedLanWifi::startConnection() {
   // Continuous 20 ms audio frames require predictable radio service. Modem sleep can
   // defer TCP acknowledgements/transmission long enough to exhaust the small send buffer.
   WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
   WiFi.setAutoReconnect(false);
   Serial.println("Connecting to configured trusted LAN...");
   if (hasSelectedAccessPoint_) {
@@ -119,8 +120,16 @@ void TrustedLanWifi::poll() {
   if (WiFi.status() == WL_CONNECTED) {
     if (state_ != WifiConnectionState::kConnected) {
       state_ = WifiConnectionState::kConnected;
+      // Reapply performance settings after association; this avoids a driver or
+      // access-point transition restoring modem power save during a live stream.
+      WiFi.setSleep(false);
+      WiFi.setTxPower(WIFI_POWER_19_5dBm);
       Serial.println("Connected to trusted LAN.");
       Serial.printf("IP: %s\n", WiFi.localIP().toString().c_str());
+      Serial.printf("Wi-Fi performance: sleep=%d, tx_power=%d, static_buffers=%s\n",
+                    static_cast<int>(WiFi.getSleep()),
+                    static_cast<int>(WiFi.getTxPower()),
+                    WiFi.useStaticBuffers() ? "yes" : "no");
       Serial.printf("HUH1 TCP server: %u\n", config::kTcpAudioPort);
     }
     return;

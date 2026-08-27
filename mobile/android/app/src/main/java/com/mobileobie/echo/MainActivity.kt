@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
         val factory = RecorderViewModelFactory(
             recorder = AndroidAudioRecorder(),
             transcriber = container.transcriber,
+            diarizer = container.diarizer,
             cleaner = container.cleaner,
             interpreter = GemmaTranscriptInterpreter(applicationContext),
             sessionRepository = container.sessionRepository,

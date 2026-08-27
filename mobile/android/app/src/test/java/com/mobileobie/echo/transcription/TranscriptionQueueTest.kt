@@ -8,6 +8,7 @@ import com.mobileobie.echo.model.SessionRecord
 import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.TranscriptionModel
+import com.mobileobie.echo.model.TranscriptSegment
 import com.mobileobie.echo.active.AutomaticCaptureCleanupPolicy
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,17 +28,18 @@ class TranscriptionQueueTest {
         val active = AtomicInteger()
         val maximum = AtomicInteger()
         val transcriber = object : Transcriber {
-            override suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel): String {
+            override suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel): TimestampedTranscript {
                 val count = active.incrementAndGet()
                 maximum.updateAndGet { maxOf(it, count) }
                 delay(75)
                 active.decrementAndGet()
-                return "Um hello there"
+                return timestamped("Um hello there")
             }
         }
         val processor = TranscriptionProcessor(
             repository,
             SerializedTranscriber(transcriber),
+            PassthroughSpeakerDiarizer,
             TranscriptCleaner(),
             { AutomaticCaptureCleanupPolicy(0) },
         )
@@ -60,8 +62,10 @@ class TranscriptionQueueTest {
         val processor = TranscriptionProcessor(
             repository,
             object : Transcriber {
-                override suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel) = "Two words"
+                override suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel) =
+                    timestamped("Two words")
             },
+            PassthroughSpeakerDiarizer,
             TranscriptCleaner(),
             { AutomaticCaptureCleanupPolicy(3) },
         )
@@ -70,6 +74,36 @@ class TranscriptionQueueTest {
 
         assertEquals(emptyList<SessionRecord>(), repository.sessions.value)
         assertEquals(false, File(requireNotNull(session.audioPath)).exists())
+    }
+
+    @Test
+    fun diarizationRunsAfterTranscriptionAndSegmentsAreSaved() = runBlocking {
+        val repository = FakeRepository()
+        val session = queuedSession("diarization-order")
+        repository.create(session)
+        var transcribed = false
+        val processor = TranscriptionProcessor(
+            repository,
+            object : Transcriber {
+                override suspend fun transcribe(
+                    audio: RecordedAudio,
+                    model: TranscriptionModel,
+                ): TimestampedTranscript {
+                    transcribed = true
+                    return timestamped("Hello there")
+                }
+            },
+            SpeakerDiarizer { _, transcript ->
+                check(transcribed)
+                transcript.copy(segments = transcript.segments.map { it.copy(speakerId = "speaker-1") })
+            },
+            TranscriptCleaner(),
+            { AutomaticCaptureCleanupPolicy(0) },
+        )
+
+        processor.process(session.id)
+
+        assertEquals("speaker-1", repository.sessions.value.single().transcriptSegments.single().speakerId)
     }
 
     private fun queuedSession(id: String): SessionRecord {
@@ -85,6 +119,10 @@ class TranscriptionQueueTest {
     }
 }
 
+private fun timestamped(text: String) = TimestampedTranscript(
+    listOf(TranscriptSegment(startMillis = 100, endMillis = 900, text = text))
+)
+
 private class FakeRepository : SessionRepository {
     private val mutableSessions = MutableStateFlow<List<SessionRecord>>(emptyList())
     override val sessions: StateFlow<List<SessionRecord>> = mutableSessions
@@ -96,13 +134,19 @@ private class FakeRepository : SessionRepository {
     override suspend fun updateStatus(id: String, status: SessionStatus) {
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) it.copy(status = status) else it }
     }
-    override suspend fun saveTranscription(id: String, transcript: String, originalTranscript: String) {
+    override suspend fun saveTranscription(
+        id: String,
+        transcript: String,
+        originalTranscript: String,
+        segments: List<TranscriptSegment>,
+    ) {
         mutableSessions.value = mutableSessions.value.map {
             if (it.id == id) it.copy(
                 status = SessionStatus.TRANSCRIBED,
                 transcript = transcript,
                 originalTranscript = originalTranscript,
                 audioPath = null,
+                transcriptSegments = segments,
             ) else it
         }
     }

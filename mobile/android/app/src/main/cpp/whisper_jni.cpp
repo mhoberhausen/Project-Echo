@@ -1,6 +1,8 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,6 +21,29 @@ void throw_illegal_state(JNIEnv *env, const char *message) {
 int inference_thread_count() {
     const unsigned int available = std::thread::hardware_concurrency();
     return std::clamp(static_cast<int>(available == 0 ? 4 : available), 1, 4);
+}
+
+std::string json_escape(const char *value) {
+    std::ostringstream escaped;
+    for (const unsigned char character : std::string(value == nullptr ? "" : value)) {
+        switch (character) {
+            case '\"': escaped << "\\\""; break;
+            case '\\': escaped << "\\\\"; break;
+            case '\b': escaped << "\\b"; break;
+            case '\f': escaped << "\\f"; break;
+            case '\n': escaped << "\\n"; break;
+            case '\r': escaped << "\\r"; break;
+            case '\t': escaped << "\\t"; break;
+            default:
+                if (character < 0x20) {
+                    escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                            << static_cast<int>(character) << std::dec;
+                } else {
+                    escaped << character;
+                }
+        }
+    }
+    return escaped.str();
 }
 
 }  // namespace
@@ -70,7 +95,7 @@ Java_com_mobileobie_echo_transcription_NativeWhisper_transcribe(
     params.print_progress = false;
     params.print_timestamps = false;
     params.print_special = false;
-    params.no_timestamps = true;
+    params.no_timestamps = false;
 
     if (whisper_full(context, params, audio.data(), static_cast<int>(audio.size())) != 0) {
         whisper_free(context);
@@ -78,13 +103,18 @@ Java_com_mobileobie_echo_transcription_NativeWhisper_transcribe(
         return nullptr;
     }
 
-    std::string transcript;
+    std::ostringstream result;
+    result << "{\"segments\":[";
     const int segment_count = whisper_full_n_segments(context);
     for (int index = 0; index < segment_count; ++index) {
         const char *segment = whisper_full_get_segment_text(context, index);
-        if (segment != nullptr) transcript.append(segment);
+        if (index > 0) result << ',';
+        result << "{\"start_ms\":" << whisper_full_get_segment_t0(context, index) * 10
+               << ",\"end_ms\":" << whisper_full_get_segment_t1(context, index) * 10
+               << ",\"text\":\"" << json_escape(segment) << "\"}";
     }
+    result << "]}";
 
     whisper_free(context);
-    return env->NewStringUTF(transcript.c_str());
+    return env->NewStringUTF(result.str().c_str());
 }

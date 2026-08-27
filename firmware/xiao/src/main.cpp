@@ -17,6 +17,7 @@
 #include "protocol/HuhAudioProtocol.h"
 #include "runtime/StreamingController.h"
 #if !ENABLE_SD_RECORDING_TEST
+#include "storage/SdWavRecorder.h"
 #include "transport/TcpAudioTransport.h"
 #include "transport/TrustedLanWifi.h"
 
@@ -27,7 +28,8 @@ namespace {
 
 huh::audio::PdmAudioCapture microphone;
 #if !ENABLE_SD_RECORDING_TEST
-huh::runtime::StreamingController streamingController(microphone);
+huh::storage::SdWavRecorder sdRecorder;
+huh::runtime::StreamingController streamingController(microphone, sdRecorder);
 huh::device::WifiCredentialStore credentialStore;
 huh::device::SerialProvisioner serialProvisioner(credentialStore);
 huh::transport::TrustedLanWifi trustedLanWifi;
@@ -232,18 +234,22 @@ void setup() {
   SD.end();
   Serial.println("Recording complete. It is safe to remove the microSD card.");
 #else
+  // Static driver buffers trade a small fixed RAM cost for predictable streaming
+  // throughput. This must be selected before the Wi-Fi driver starts.
+  WiFi.useStaticBuffers(true);
   if (!streamingController.begin(config::kAudioQueueFrames)) {
     Serial.println("Bring-up stopped. Could not allocate the bounded audio queue.");
     return;
   }
+  sdRecorder.begin();
   Serial.printf("Configured for %u-byte/20 ms microphone frames; queue=%u frames.\n",
                 static_cast<unsigned>(huh::audio::kBytesPerFrame),
                 static_cast<unsigned>(config::kAudioQueueFrames));
-  Serial.println("Trusted-LAN POC: audio starts only after an Android TCP connection.");
+  Serial.println("Trusted-LAN POC: connection sends HELLO; an explicit START begins SD capture.");
   Serial.println("Build the xiao_esp32s3_sense_sd_test environment to record /test.wav.");
   Serial.flush();
   tcpTransport = std::make_unique<huh::transport::TcpAudioTransport>(
-      config::kTcpAudioPort, identity, streamingController);
+      config::kTcpAudioPort, identity, streamingController, sdRecorder);
   huh::device::WifiCredentials credentials;
   const bool hasCredentials = credentialStore.load(credentials);
   serialProvisioner.begin(hasCredentials);

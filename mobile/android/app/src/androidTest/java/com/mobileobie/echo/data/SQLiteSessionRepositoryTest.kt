@@ -11,6 +11,7 @@ import com.mobileobie.echo.model.SessionMetadata
 import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.TranscriptionModel
+import com.mobileobie.echo.model.TranscriptSegment
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -42,6 +43,9 @@ class SQLiteSessionRepositoryTest {
             durationMillis = 12_500,
             transcript = "Transcript",
             originalTranscript = "Um transcript",
+            transcriptSegments = listOf(
+                TranscriptSegment(100, 900, "Um transcript", "speaker-1")
+            ),
             transcriptionModel = TranscriptionModel.ACCURATE,
             nowUtcMillis = 123_456,
             id = "saved-session",
@@ -65,6 +69,8 @@ class SQLiteSessionRepositoryTest {
         assertEquals(SessionStatus.PROCESSED, processed.status)
         assertEquals(listOf("Work", "Follow-up"), processed.tags)
         assertEquals("Summary", processed.processText?.substringBefore("\n"))
+        assertEquals(100, processed.transcriptSegments.single().startMillis)
+        assertEquals("speaker-1", processed.transcriptSegments.single().speakerId)
 
         repository.rename(session.id, "Renamed")
         assertEquals("Renamed", repository.sessions.value.single().title)

@@ -1,6 +1,7 @@
 package com.mobileobie.echo.external.protocol
 
 import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -16,7 +17,8 @@ object HuhAudioProtocol {
 }
 
 enum class HuhMessageType(val wireValue: Int) {
-    HELLO(1), START(2), AUDIO(3), HEARTBEAT(4), STOP(5), ERROR(6);
+    HELLO(1), START(2), AUDIO(3), HEARTBEAT(4), STOP(5), ERROR(6), ACK(7), FETCH(8),
+    FILE_CHUNK(9), FILE_END(10);
 
     companion object {
         fun fromWire(value: Int) = entries.firstOrNull { it.wireValue == value }
@@ -26,6 +28,7 @@ enum class HuhMessageType(val wireValue: Int) {
 
 enum class StreamEndReason(val wireValue: Int) {
     USER_STOP(1), PAUSE(2), DISCONNECT(3), STORAGE_FAILURE(4), DEVICE_REBOOT(5), CAPTURE_FAILURE(6),
+    CONTROL_LEASE_EXPIRED(7),
     UNKNOWN(255);
 
     companion object {
@@ -56,6 +59,10 @@ sealed interface HuhAudioMessage {
     data class Heartbeat(val streamId: UUID, val lastSequence: Long) : HuhAudioMessage
     data class Stop(val streamId: UUID, val reason: StreamEndReason) : HuhAudioMessage
     data class Error(val code: Int, val message: String) : HuhAudioMessage
+    data class Ack(val streamId: UUID) : HuhAudioMessage
+    data class Fetch(val streamId: UUID, val offset: Long) : HuhAudioMessage
+    data class FileChunk(val streamId: UUID, val offset: Long, val pcmBytes: ByteArray) : HuhAudioMessage
+    data class FileEnd(val streamId: UUID, val totalBytes: Long) : HuhAudioMessage
 }
 
 class HuhAudioFrameReader(input: InputStream) {
@@ -113,10 +120,69 @@ class HuhAudioFrameReader(input: InputStream) {
             HuhMessageType.HEARTBEAT -> HuhAudioMessage.Heartbeat(payload.readUuid(), payload.readLongRequired())
             HuhMessageType.STOP -> HuhAudioMessage.Stop(payload.readUuid(), StreamEndReason.fromWire(payload.readUnsignedByte()))
             HuhMessageType.ERROR -> HuhAudioMessage.Error(payload.readUnsignedShort(), payload.readString())
+            HuhMessageType.ACK -> HuhAudioMessage.Ack(payload.readUuid())
+            HuhMessageType.FETCH -> HuhAudioMessage.Fetch(payload.readUuid(), payload.readUnsignedInt())
+            HuhMessageType.FILE_CHUNK -> {
+                val streamId = payload.readUuid()
+                val offset = payload.readUnsignedInt()
+                val bytes = ByteArray(payload.remaining()).also(payload::get)
+                if (bytes.isEmpty()) throw ProtocolException("FILE_CHUNK cannot be empty.")
+                HuhAudioMessage.FileChunk(streamId, offset, bytes)
+            }
+            HuhMessageType.FILE_END -> HuhAudioMessage.FileEnd(payload.readUuid(), payload.readUnsignedInt())
         }
         if (payload.hasRemaining()) throw ProtocolException("Unexpected trailing payload bytes.")
         return message
     }
+}
+
+class HuhAudioFrameWriter(output: java.io.OutputStream) {
+    private val output = DataOutputStream(output)
+
+    @Synchronized
+    fun start(streamId: UUID) = write(HuhMessageType.START, uuidPayload(streamId))
+
+    @Synchronized
+    fun heartbeat(streamId: UUID, counter: Long) = write(
+        HuhMessageType.HEARTBEAT,
+        ByteBuffer.allocate(24).order(ByteOrder.BIG_ENDIAN).putUuid(streamId).putLong(counter).array(),
+    )
+
+    @Synchronized
+    fun stop(streamId: UUID, reason: StreamEndReason) = write(
+        HuhMessageType.STOP,
+        ByteBuffer.allocate(17).order(ByteOrder.BIG_ENDIAN).putUuid(streamId)
+            .put(reason.wireValue.toByte()).array(),
+    )
+
+    @Synchronized
+    fun fetch(streamId: UUID, offset: Long) {
+        require(offset in 0..UINT32_MAX) { "FETCH offset exceeds the protocol limit." }
+        write(
+            HuhMessageType.FETCH,
+            ByteBuffer.allocate(20).order(ByteOrder.BIG_ENDIAN).putUuid(streamId)
+                .putInt(offset.toInt()).array(),
+        )
+    }
+
+    @Synchronized
+    fun acknowledge(streamId: UUID) = write(HuhMessageType.ACK, uuidPayload(streamId))
+
+    private fun write(type: HuhMessageType, payload: ByteArray) {
+        require(payload.size <= HuhAudioProtocol.MAX_PAYLOAD_BYTES)
+        output.write(HuhAudioProtocol.MAGIC)
+        output.writeByte(HuhAudioProtocol.VERSION)
+        output.writeByte(type.wireValue)
+        output.writeShort(0)
+        output.writeInt(payload.size)
+        output.write(payload)
+        output.flush()
+    }
+
+    private fun uuidPayload(streamId: UUID) =
+        ByteBuffer.allocate(16).order(ByteOrder.BIG_ENDIAN).putUuid(streamId).array()
+
+    companion object { private const val UINT32_MAX = 0xffff_ffffL }
 }
 
 class ProtocolException(message: String) : IllegalArgumentException(message)
@@ -143,7 +209,10 @@ private fun ByteBuffer.readUnsignedShort(): Int {
 
 private fun ByteBuffer.readIntRequired(): Int { requireRemaining(4); return int }
 private fun ByteBuffer.readLongRequired(): Long { requireRemaining(8); return long }
+private fun ByteBuffer.readUnsignedInt(): Long = readIntRequired().toLong() and 0xffff_ffffL
 private fun ByteBuffer.readUuid() = UUID(readLongRequired(), readLongRequired())
+private fun ByteBuffer.putUuid(value: UUID): ByteBuffer =
+    putLong(value.mostSignificantBits).putLong(value.leastSignificantBits)
 
 private fun ByteBuffer.readString(): String {
     val length = readUnsignedShort()

@@ -9,6 +9,6 @@ import kotlinx.coroutines.sync.withLock
 class SerializedTranscriber(private val delegate: Transcriber) : Transcriber {
     private val mutex = Mutex()
 
-    override suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel): String =
+    override suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel): TimestampedTranscript =
         mutex.withLock { delegate.transcribe(audio, model) }
 }

@@ -1,35 +1,72 @@
 #include "TcpAudioTransport.h"
 
-#include "DeviceConfig.h"
-#include "../device/DeviceIdentity.h"
-
+#include <algorithm>
 #include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include <lwip/sockets.h>
 
+#include "DeviceConfig.h"
+
 namespace huh::transport {
+namespace {
+
+constexpr size_t kHeaderBytes = protocol::kEnvelopeSize;
+constexpr size_t kMaximumInboundBytes = kHeaderBytes + protocol::kMaximumPayloadBytes;
+
+uint32_t readU32(const uint8_t* bytes) {
+  return (static_cast<uint32_t>(bytes[0]) << 24) |
+         (static_cast<uint32_t>(bytes[1]) << 16) |
+         (static_cast<uint32_t>(bytes[2]) << 8) | bytes[3];
+}
+
+uint64_t readU64(const uint8_t* bytes) {
+  uint64_t value = 0;
+  for (size_t index = 0; index < 8; ++index) value = (value << 8) | bytes[index];
+  return value;
+}
+
+}  // namespace
 
 TcpAudioTransport::TcpAudioTransport(uint16_t port,
                                      const protocol::HelloInfo& identity,
-                                     runtime::StreamingController& controller)
-    : port_(port), identity_(identity), controller_(controller), server_(port, 1), writer_(*this) {
+                                     runtime::StreamingController& controller,
+                                     storage::SdWavRecorder& recorder)
+    : port_(port), identity_(identity), controller_(controller),
+      recorder_(recorder), server_(port, 1), writer_(*this) {
   message_.reserve(protocol::kEnvelopeSize + 672);
-  pendingMessage_.reserve(
-      config::kTcpFramesPerPass * (protocol::kEnvelopeSize + 672));
+  pendingMessage_.reserve(protocol::kEnvelopeSize + 4116);
+  inbound_.reserve(128);
 }
 
 void TcpAudioTransport::setNetworkAvailable(bool available) {
   if (networkAvailable_ == available) return;
   networkAvailable_ = available;
   if (!available) {
-    endClient(protocol::StopReason::kDisconnect, false, true);
+    closeClient();
     server_.end();
     listening_ = false;
+    if (phase_ == Phase::kTransferring || phase_ == Phase::kAwaitingAck) {
+      if (transferFile_) transferFile_.close();
+      clearPending();
+      phase_ = Phase::kAwaitingFetch;
+    }
     controller_.setState(runtime::ConnectionState::kDisconnected);
   }
 }
 
 void TcpAudioTransport::poll() {
+  if (phase_ == Phase::kCapturing) {
+    if (controller_.captureFailed()) {
+      fail(3, "Durable capture failed", protocol::StopReason::kStorageFailure);
+      return;
+    }
+    if (millis() - leaseRenewedAt_ >= config::kCaptureLeaseTimeoutMs) {
+      Serial.println("Capture lease expired; finalizing microSD recording.");
+      finalizeCapture(protocol::StopReason::kControlLeaseExpired, true);
+    }
+  }
+
   if (!networkAvailable_) return;
   if (!listening_) {
     server_.begin(port_, 1);
@@ -40,15 +77,35 @@ void TcpAudioTransport::poll() {
       Serial.println("ERROR: HUH1 TCP server could not start.");
       return;
     }
-    controller_.setState(runtime::ConnectionState::kReady);
-    Serial.printf("HUH1 TCP server listening on port %u.\n", port_);
+    if (phase_ == Phase::kIdle) controller_.setState(runtime::ConnectionState::kReady);
+    Serial.printf("HUH1 TCP control server listening on port %u.\n", port_);
   }
-  if (!client_.connected()) {
-    if (stream_ != nullptr) endClient(protocol::StopReason::kDisconnect, false, true);
-    acceptClient();
+
+  if (client_.fd() < 0) {
+    if (phase_ == Phase::kIdle || phase_ == Phase::kAwaitingFetch) acceptClient();
     return;
   }
-  handleClient();
+  // Do not call NetworkClient::connected() in the hot path. It performs a
+  // recv(MSG_PEEK) that previously starved both control reads and TCP sends.
+  if (phase_ != Phase::kCapturing && phase_ != Phase::kTransferring &&
+      millis() - lastConnectionCheckAt_ >= 250) {
+    lastConnectionCheckAt_ = millis();
+    if (!client_.connected()) {
+      closeClient();
+      if (phase_ == Phase::kAwaitingAck) phase_ = Phase::kAwaitingFetch;
+      return;
+    }
+  }
+  if (!readCommands()) {
+    closeClient();
+    if (phase_ == Phase::kTransferring || phase_ == Phase::kAwaitingAck) {
+      if (transferFile_) transferFile_.close();
+      clearPending();
+      phase_ = Phase::kAwaitingFetch;
+    }
+    return;
+  }
+  if (phase_ == Phase::kTransferring) pumpTransfer();
 }
 
 bool TcpAudioTransport::acceptClient() {
@@ -58,152 +115,263 @@ bool TcpAudioTransport::acceptClient() {
   client_.setNoDelay(true);
   client_.setTimeout(250);
   configureClientSocket();
-  stream_ = std::make_unique<protocol::AudioStreamSession>(
-      device::DeviceIdentity::createStreamUuid());
-  observedOverruns_ = controller_.overrunCount();
-  streamStartedAt_ = millis();
-  lastDiagnosticAt_ = streamStartedAt_;
-  capturedAtStart_ = controller_.capturedFrames();
-  transmittedFrames_ = 0;
-  transmittedBytes_ = 0;
-  totalWriteDurationMs_ = 0;
-  maximumWriteDurationMs_ = 0;
-  partialWriteCount_ = 0;
-  writeFailureCount_ = 0;
+  inbound_.clear();
   clearPending();
-  if (!protocol::encodeHello(identity_, message_) || !send(message_) ||
-      !stream_->encodeStartMessage(message_) || !send(message_)) {
-    endClient(protocol::StopReason::kDisconnect, false, true);
+  if (!protocol::encodeHello(identity_, message_) || !send(message_)) {
+    closeClient();
     return false;
   }
-  if (!controller_.startCapture(config::kMicClockPin, config::kMicDataPin)) {
-    protocol::encodeError(1, "Microphone capture failed", message_);
-    send(message_);
-    endClient(protocol::StopReason::kCaptureFailure, true, true);
-    return false;
-  }
-  controller_.setState(runtime::ConnectionState::kStreaming);
-  lastHeartbeatAt_ = millis();
-  Serial.printf("Android receiver connected from %s.\n", client_.remoteIP().toString().c_str());
+  controller_.setState(runtime::ConnectionState::kReady);
+  Serial.printf("Controller connected from %s; awaiting START.\n",
+                client_.remoteIP().toString().c_str());
   return true;
 }
 
-void TcpAudioTransport::handleClient() {
-  if (controller_.captureFailed()) {
-    failCapture(1, "Microphone capture failed");
-    return;
-  }
-  if (controller_.overrunCount() != observedOverruns_) {
-    failCapture(2, "Audio queue overrun");
-    return;
+bool TcpAudioTransport::readCommands() {
+  uint8_t bytes[256];
+  while (client_.available() > 0) {
+    const int count = client_.read(bytes, std::min<int>(client_.available(), sizeof(bytes)));
+    if (count < 0) return false;
+    inbound_.insert(inbound_.end(), bytes, bytes + count);
+    if (inbound_.size() > kMaximumInboundBytes) {
+      fail(10, "Control message is too large", protocol::StopReason::kCaptureFailure);
+      return false;
+    }
   }
 
-  const uint32_t passStartedAt = millis();
-  size_t framesThisPass = 0;
+  while (inbound_.size() >= kHeaderBytes) {
+    const uint8_t* header = inbound_.data();
+    if (memcmp(header, "HUH1", 4) != 0 ||
+        header[4] != protocol::kProtocolVersion || header[6] != 0 || header[7] != 0) {
+      fail(11, "Invalid HUH1 control envelope", protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    const uint32_t payloadLength = readU32(header + 8);
+    if (payloadLength > protocol::kMaximumPayloadBytes) {
+      fail(10, "Control payload is too large", protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    const size_t total = kHeaderBytes + payloadLength;
+    if (inbound_.size() < total) break;
+    if (!handleCommand(header[5], header + kHeaderBytes, payloadLength)) return false;
+    inbound_.erase(inbound_.begin(), inbound_.begin() + total);
+  }
+  return true;
+}
+
+bool TcpAudioTransport::handleCommand(uint8_t rawType, const uint8_t* payload,
+                                      size_t length) {
+  const auto type = static_cast<protocol::MessageType>(rawType);
+  if (type == protocol::MessageType::kStart) {
+    if (length != protocol::StreamUuid{}.size() || phase_ != Phase::kIdle) {
+      fail(12, "START is not valid in the current state", protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    protocol::StreamUuid stream;
+    memcpy(stream.data(), payload, stream.size());
+    return startCapture(stream);
+  }
+  if (type == protocol::MessageType::kHeartbeat) {
+    if (length != 24 || phase_ != Phase::kCapturing || !matchingStream(payload, length)) {
+      fail(13, "HEARTBEAT does not own the active capture", protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    const uint64_t counter = readU64(payload + 16);
+    if (hasLeaseCounter_ && counter <= lastLeaseCounter_) return true;
+    hasLeaseCounter_ = true;
+    lastLeaseCounter_ = counter;
+    leaseRenewedAt_ = millis();
+    return true;
+  }
+  if (type == protocol::MessageType::kStop) {
+    if (length != 17 || phase_ != Phase::kCapturing || !matchingStream(payload, length)) {
+      fail(14, "STOP does not own the active capture", protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    const auto requested = static_cast<protocol::StopReason>(payload[16]);
+    const auto reason = requested == protocol::StopReason::kPause
+        ? protocol::StopReason::kPause : protocol::StopReason::kUserStop;
+    finalizeCapture(reason, false);
+    return true;
+  }
+  if (type == protocol::MessageType::kAck) {
+    if (length != 16 || phase_ != Phase::kAwaitingAck || !matchingStream(payload, length)) {
+      fail(15, "ACK does not match the completed capture", protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    acknowledge();
+    return true;
+  }
+  if (type == protocol::MessageType::kFetch) {
+    if (length != 20 || phase_ != Phase::kAwaitingFetch ||
+        !matchingStream(payload, length)) {
+      fail(17, "FETCH does not match a completed capture",
+           protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    return beginFetch(readU32(payload + 16));
+  }
+  fail(16, "Unsupported inbound HUH1 message", protocol::StopReason::kCaptureFailure);
+  return false;
+}
+
+bool TcpAudioTransport::startCapture(const protocol::StreamUuid& stream) {
+  if (!recorder_.isMounted() || !recorder_.start(stream)) {
+    fail(4, "microSD recording could not start", protocol::StopReason::kStorageFailure);
+    return false;
+  }
+  stream_ = std::make_unique<protocol::AudioStreamSession>(stream);
+  if (!controller_.startCapture(config::kMicClockPin, config::kMicDataPin)) {
+    recorder_.finish();
+    fail(1, "Microphone capture failed", protocol::StopReason::kCaptureFailure);
+    return false;
+  }
+  leaseRenewedAt_ = millis();
+  lastLeaseCounter_ = 0;
+  hasLeaseCounter_ = false;
+  phase_ = Phase::kCapturing;
+  if (!stream_->encodeStartMessage(message_) || !send(message_)) closeClient();
+  controller_.setState(runtime::ConnectionState::kStreaming);
+  Serial.println("Capture lease started; recording canonical PCM to microSD.");
+  return true;
+}
+
+void TcpAudioTransport::finalizeCapture(protocol::StopReason reason,
+                                        bool interrupted) {
+  if (phase_ != Phase::kCapturing || stream_ == nullptr) return;
+  controller_.stopCapture();
+  if (!recorder_.finish()) {
+    fail(4, "microSD recording could not be finalized",
+         protocol::StopReason::kStorageFailure);
+    return;
+  }
+  finalReason_ = reason;
+  if (interrupted) ++interruptedStreams_; else ++completedStreams_;
+  Serial.printf("Capture stopped; reason=%u completed=%lu interrupted=%lu.\n",
+                static_cast<unsigned>(reason),
+                static_cast<unsigned long>(completedStreams_),
+                static_cast<unsigned long>(interruptedStreams_));
+  phase_ = Phase::kAwaitingFetch;
+  controller_.setState(runtime::ConnectionState::kReady);
+  if (client_.fd() >= 0 && stream_->encodeStopMessage(reason, message_)) {
+    send(message_);
+  }
+  Serial.println("Recording ready; awaiting FETCH while retained on microSD.");
+}
+
+bool TcpAudioTransport::beginFetch(uint32_t offset) {
+  if (offset > recorder_.audioBytes()) {
+    fail(18, "FETCH offset exceeds the recording size",
+         protocol::StopReason::kStorageFailure);
+    return false;
+  }
+  transferFile_ = recorder_.openFinalized();
+  if (!transferFile_ || !transferFile_.seek(44 + offset)) {
+    fail(4, "Finalized recording could not be opened at the requested offset",
+         protocol::StopReason::kStorageFailure);
+    return false;
+  }
+  transferOffset_ = offset;
+  transferEndQueued_ = false;
+  phase_ = Phase::kTransferring;
+  Serial.printf("Transferring recording from byte %lu.\n",
+                static_cast<unsigned long>(offset));
+  return true;
+}
+
+void TcpAudioTransport::pumpTransfer() {
   if (!pendingMessage_.empty()) {
     if (!flushPending()) {
-      endClient(protocol::StopReason::kDisconnect, false, true);
+      closeClient();
+      if (transferFile_) transferFile_.close();
+      clearPending();
+      phase_ = Phase::kAwaitingFetch;
       return;
     }
-    if (!pendingMessage_.empty()) return;  // Resume after socket backpressure.
+    if (!pendingMessage_.empty()) return;
+    if (transferEndQueued_) {
+      phase_ = Phase::kAwaitingAck;
+      controller_.setState(runtime::ConnectionState::kReady);
+      Serial.println("Recording transferred; awaiting ACK before SD deletion.");
+      return;
+    }
   }
 
-  pendingStartedAt_ = millis();
-  while (framesThisPass < config::kTcpFramesPerPass &&
-         millis() - passStartedAt < config::kTcpPassBudgetMs) {
-    audio::AudioFrame frame;
-    if (!controller_.tryTakeFrame(frame, 0)) break;
-    if (!stream_->encodeNextAudio(frame, message_)) {
-      endClient(protocol::StopReason::kCaptureFailure, false, true);
+  uint8_t chunk[4096];
+  const size_t count = transferFile_.read(chunk, sizeof(chunk));
+  if (count > 0) {
+    if (!protocol::encodeFileChunk(stream_->uuid(), transferOffset_, chunk,
+                                   count, message_)) {
+      fail(5, "Recording transfer encode failed", protocol::StopReason::kStorageFailure);
       return;
     }
-    pendingMessage_.insert(pendingMessage_.end(), message_.begin(), message_.end());
-    ++pendingAudioFrames_;
-    ++framesThisPass;
-  }
-  if (!pendingMessage_.empty() && !flushPending()) {
-    endClient(protocol::StopReason::kDisconnect, false, true);
-    return;
-  }
-
-  if (controller_.captureFailed()) {
-    failCapture(1, "Microphone capture failed");
-    return;
-  }
-  if (controller_.overrunCount() != observedOverruns_) {
-    failCapture(2, "Audio queue overrun");
-    return;
-  }
-  if (pendingMessage_.empty() &&
-      millis() - lastHeartbeatAt_ >= config::kHeartbeatIntervalMs) {
-    if (!stream_->encodeHeartbeatMessage(message_)) {
-      endClient(protocol::StopReason::kCaptureFailure, false, true);
-      return;
-    }
-    queuePending(message_, 0);
+    transferOffset_ += static_cast<uint32_t>(count);
+    pendingMessage_ = message_;
+    pendingOffset_ = 0;
     if (!flushPending()) {
-      endClient(protocol::StopReason::kDisconnect, false, true);
-      return;
+      closeClient();
+      if (transferFile_) transferFile_.close();
+      clearPending();
+      phase_ = Phase::kAwaitingFetch;
     }
-    lastHeartbeatAt_ = millis();
+    return;
   }
-  if (millis() - lastDiagnosticAt_ >= config::kStreamDiagnosticIntervalMs) {
-    printDiagnostics();
-    lastDiagnosticAt_ = millis();
+  transferFile_.close();
+  if (!protocol::encodeFileEnd(stream_->uuid(), recorder_.audioBytes(), message_)) {
+    fail(5, "Recording transfer could not finish", protocol::StopReason::kStorageFailure);
+    return;
+  }
+  pendingMessage_ = message_;
+  pendingOffset_ = 0;
+  transferEndQueued_ = true;
+  if (!flushPending()) {
+    closeClient();
+    clearPending();
+    phase_ = Phase::kAwaitingFetch;
+  } else if (pendingMessage_.empty()) {
+    phase_ = Phase::kAwaitingAck;
+    controller_.setState(runtime::ConnectionState::kReady);
+    Serial.println("Recording transferred; awaiting ACK before SD deletion.");
   }
 }
 
-void TcpAudioTransport::failCapture(uint16_t errorCode,
-                                    const char* safeMessage) {
-  const bool controlMessageIsSafe = pendingMessage_.empty() || pendingOffset_ == 0;
-  clearPending();
-  if (controlMessageIsSafe && client_.connected() &&
-      protocol::encodeError(errorCode, safeMessage, message_)) {
-    send(message_);  // Best effort; STOP is attempted separately by endClient.
+void TcpAudioTransport::acknowledge() {
+  if (!recorder_.removeFinalized()) {
+    protocol::encodeError(6, "Transferred recording could not be deleted", message_);
+    send(message_);
   }
-  endClient(protocol::StopReason::kCaptureFailure, controlMessageIsSafe, true);
+  resetStream(false);
+  controller_.setState(runtime::ConnectionState::kReady);
 }
 
-void TcpAudioTransport::printDiagnostics() {
-  const uint32_t elapsedMs = millis() - streamStartedAt_;
-  const uint32_t captured = controller_.capturedFrames() - capturedAtStart_;
-  const uint32_t averageWriteUs = transmittedFrames_ == 0
-      ? 0
-      : (totalWriteDurationMs_ * 1000UL) / transmittedFrames_;
-  const uint32_t capturedFpsTimes10 = elapsedMs == 0
-      ? 0
-      : (captured * 10000UL) / elapsedMs;
-  const uint32_t transmittedFpsTimes10 = elapsedMs == 0
-      ? 0
-      : (transmittedFrames_ * 10000UL) / elapsedMs;
-  Serial.printf(
-      "Stream metrics: elapsed_ms=%lu captured=%lu capture_fps_x10=%lu "
-      "sent=%lu send_fps_x10=%lu bytes=%lu "
-      "queue=%u high_water=%u avg_write_us=%lu max_write_ms=%lu "
-      "partial_writes=%lu write_failures=%lu overruns=%lu\n",
-      static_cast<unsigned long>(elapsedMs),
-      static_cast<unsigned long>(captured),
-      static_cast<unsigned long>(capturedFpsTimes10),
-      static_cast<unsigned long>(transmittedFrames_),
-      static_cast<unsigned long>(transmittedFpsTimes10),
-      static_cast<unsigned long>(transmittedBytes_),
-      static_cast<unsigned>(controller_.queuedFrames()),
-      static_cast<unsigned>(controller_.queueHighWaterMark()),
-      static_cast<unsigned long>(averageWriteUs),
-      static_cast<unsigned long>(maximumWriteDurationMs_),
-      static_cast<unsigned long>(partialWriteCount_),
-      static_cast<unsigned long>(writeFailureCount_),
-      static_cast<unsigned long>(controller_.overrunCount()));
+void TcpAudioTransport::fail(uint16_t errorCode, const char* safeMessage,
+                             protocol::StopReason reason) {
+  Serial.printf("ERROR: %s\n", safeMessage);
+  if (client_.fd() >= 0 && protocol::encodeError(errorCode, safeMessage, message_)) send(message_);
+  if (phase_ == Phase::kCapturing) {
+    controller_.stopCapture();
+    recorder_.finish();
+  }
+  if (client_.fd() >= 0 && stream_ && stream_->encodeStopMessage(reason, message_)) send(message_);
+  closeClient();
+  resetStream(false);
+  controller_.setState(runtime::ConnectionState::kError);
+}
+
+bool TcpAudioTransport::matchingStream(const uint8_t* payload, size_t length) const {
+  return stream_ != nullptr && length >= stream_->uuid().size() &&
+         memcmp(payload, stream_->uuid().data(), stream_->uuid().size()) == 0;
+}
+
+void TcpAudioTransport::stop(protocol::StopReason reason) {
+  if (phase_ == Phase::kCapturing) finalizeCapture(reason, false);
 }
 
 void TcpAudioTransport::configureClientSocket() {
-  const int socketFlags = fcntl(client_.fd(), F_GETFL, 0);
-  if (socketFlags >= 0) {
-    fcntl(client_.fd(), F_SETFL, socketFlags | O_NONBLOCK);
-  }
+  const int flags = fcntl(client_.fd(), F_GETFL, 0);
+  if (flags >= 0) fcntl(client_.fd(), F_SETFL, flags | O_NONBLOCK);
   const int keepalive = 1;
-  client_.setSocketOption(SOL_SOCKET, SO_KEEPALIVE, &keepalive,
-                          sizeof(keepalive));
+  client_.setSocketOption(SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
   const int idle = config::kTcpKeepaliveIdleSeconds;
   const int interval = config::kTcpKeepaliveIntervalSeconds;
   const int count = config::kTcpKeepaliveProbeCount;
@@ -212,96 +380,54 @@ void TcpAudioTransport::configureClientSocket() {
   client_.setSocketOption(IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
 }
 
-void TcpAudioTransport::stop(protocol::StopReason reason) {
-  endClient(reason, true, false);
+void TcpAudioTransport::closeClient() {
+  if (client_.fd() >= 0) client_.stop();
+  inbound_.clear();
+  clearPending();
 }
 
-void TcpAudioTransport::endClient(protocol::StopReason reason, bool sendStop, bool interrupted) {
-  if (stream_ == nullptr && !client_) return;
-  if (stream_ != nullptr) printDiagnostics();
-  controller_.stopCapture();
-  const bool controlMessageIsSafe = pendingMessage_.empty() || pendingOffset_ == 0;
-  clearPending();
-  if (sendStop && controlMessageIsSafe && client_.connected() && stream_ != nullptr &&
-      stream_->encodeStopMessage(reason, message_)) send(message_);
-  client_.stop();
+void TcpAudioTransport::resetStream(bool removeFile) {
+  if (transferFile_) transferFile_.close();
+  if (removeFile) recorder_.removeFinalized();
   stream_.reset();
+  phase_ = Phase::kIdle;
+  transferEndQueued_ = false;
+  transferOffset_ = 0;
+  finalReason_ = protocol::StopReason::kUnknown;
+  hasLeaseCounter_ = false;
   controller_.clearQueuedFrames();
-  controller_.setState(runtime::ConnectionState::kReady);
-  if (interrupted) ++interruptedStreams_; else ++completedStreams_;
-  Serial.printf("Receiver disconnected; completed=%lu interrupted=%lu overruns=%lu\n",
-                static_cast<unsigned long>(completedStreams_),
-                static_cast<unsigned long>(interruptedStreams_),
-                static_cast<unsigned long>(controller_.overrunCount()));
 }
 
 bool TcpAudioTransport::send(const std::vector<uint8_t>& message) {
-  if (!client_.connected()) return false;
-  const bool success = writer_.write(message);
-  if (success) {
-    transmittedBytes_ += message.size();
-  } else {
-    ++writeFailureCount_;
-  }
-  return success;
-}
-
-void TcpAudioTransport::queuePending(const std::vector<uint8_t>& message,
-                                     size_t audioFrames) {
-  pendingMessage_ = message;
-  pendingOffset_ = 0;
-  pendingAudioFrames_ = audioFrames;
-  pendingStartedAt_ = millis();
+  return client_.fd() >= 0 && writer_.write(message);
 }
 
 bool TcpAudioTransport::flushPending() {
   if (pendingMessage_.empty()) return true;
-  if (!client_.connected()) return false;
-
+  if (client_.fd() < 0) return false;
   const size_t remaining = pendingMessage_.size() - pendingOffset_;
-  const int written = lwip_send(client_.fd(),
-                                pendingMessage_.data() + pendingOffset_,
+  const int written = lwip_send(client_.fd(), pendingMessage_.data() + pendingOffset_,
                                 remaining, MSG_DONTWAIT);
   if (written > 0) {
-    const size_t accepted = static_cast<size_t>(written);
-    if (accepted < remaining) ++partialWriteCount_;
-    pendingOffset_ += accepted;
-    transmittedBytes_ += accepted;
-    if (pendingOffset_ == pendingMessage_.size()) {
-      if (pendingAudioFrames_ > 0) {
-        const uint32_t duration = millis() - pendingStartedAt_;
-        totalWriteDurationMs_ += duration;
-        if (duration > maximumWriteDurationMs_) maximumWriteDurationMs_ = duration;
-        transmittedFrames_ += pendingAudioFrames_;
-      }
-      clearPending();
-    }
+    pendingOffset_ += static_cast<size_t>(written);
+    if (pendingOffset_ == pendingMessage_.size()) clearPending();
     return true;
   }
-  if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-    return true;
-  }
-  ++writeFailureCount_;
+  if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return true;
   return false;
 }
 
 void TcpAudioTransport::clearPending() {
   pendingMessage_.clear();
   pendingOffset_ = 0;
-  pendingAudioFrames_ = 0;
-  pendingStartedAt_ = 0;
 }
 
 size_t TcpAudioTransport::write(const uint8_t* bytes, size_t length) {
-  if (!client_.connected()) return 0;
-  const size_t written = client_.write(bytes, length);
-  if (written < length) ++partialWriteCount_;
-  return written;
+  return client_.fd() >= 0 ? client_.write(bytes, length) : 0;
 }
 
 bool TcpAudioTransport::shouldPollImmediately() const {
-  return stream_ != nullptr &&
-         (!pendingMessage_.empty() || controller_.queuedFrames() > 0);
+  return phase_ == Phase::kTransferring || !inbound_.empty();
 }
 
 }  // namespace huh::transport

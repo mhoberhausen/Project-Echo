@@ -13,6 +13,7 @@ import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.TranscriptionModel
 import com.mobileobie.echo.transcription.Transcriber
 import com.mobileobie.echo.transcription.TranscriptCleaner
+import com.mobileobie.echo.transcription.SpeakerDiarizer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 class RecorderViewModel(
     private val recorder: AudioRecorder,
     private val transcriber: Transcriber,
+    private val diarizer: SpeakerDiarizer,
     private val cleaner: TranscriptCleaner,
     private val interpreter: TranscriptInterpreter,
     private val sessionRepository: SessionRepository,
@@ -65,13 +67,16 @@ class RecorderViewModel(
             runCatching {
                 val audio = recorder.stop()
                 val model = _uiState.value.selectedModel
-                val original = transcriber.transcribe(audio, model)
+                val timestamped = transcriber.transcribe(audio, model)
+                val diarized = diarizer.diarize(audio, timestamped)
+                val original = diarized.text
                 val cleaned = cleaner.clean(original)
                 val durationMillis = audio.samples.size * 1_000L / audio.sampleRateHz
                 val session = SessionMetadata.create(
                     durationMillis = durationMillis,
                     transcript = cleaned,
                     originalTranscript = original,
+                    transcriptSegments = diarized.segments,
                     transcriptionModel = model,
                 )
                 sessionRepository.create(session)

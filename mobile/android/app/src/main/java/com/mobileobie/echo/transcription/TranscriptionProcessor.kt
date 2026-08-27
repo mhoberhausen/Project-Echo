@@ -12,6 +12,7 @@ import java.nio.ByteOrder
 class TranscriptionProcessor(
     private val repository: SessionRepository,
     private val transcriber: Transcriber,
+    private val diarizer: SpeakerDiarizer,
     private val cleaner: TranscriptCleaner,
     private val cleanupPolicy: () -> AutomaticCaptureCleanupPolicy,
 ) {
@@ -23,13 +24,16 @@ class TranscriptionProcessor(
         return try {
             val policy = cleanupPolicy()
             repository.updateStatus(session.id, SessionStatus.TRANSCRIBING)
-            val original = transcriber.transcribe(RecordedAudio(readPcm16(file), SAMPLE_RATE_HZ), session.transcriptionModel)
+            val audio = RecordedAudio(readPcm16(file), SAMPLE_RATE_HZ)
+            val timestamped = transcriber.transcribe(audio, session.transcriptionModel)
+            val diarized = diarizer.diarize(audio, timestamped)
+            val original = diarized.text
             val cleaned = cleaner.clean(original)
             if (policy.shouldDiscardTranscript(cleaned)) {
                 repository.delete(session.id)
                 return true
             }
-            repository.saveTranscription(session.id, cleaned, original)
+            repository.saveTranscription(session.id, cleaned, original, diarized.segments)
             file.delete()
             true
         } catch (cancelled: CancellationException) {

@@ -128,6 +128,31 @@ bool encodeError(uint16_t code, const std::string& safeMessage,
   return wrap(MessageType::kError, payload, output);
 }
 
+bool encodeAck(const StreamUuid& stream, std::vector<uint8_t>& output) {
+  return encodeMessage(MessageType::kAck, stream.data(), stream.size(), output);
+}
+
+bool encodeFileChunk(const StreamUuid& stream, uint32_t offset,
+                     const uint8_t* bytes, size_t length,
+                     std::vector<uint8_t>& output) {
+  if (bytes == nullptr || length == 0 || length > kMaximumPayloadBytes - 20) {
+    output.clear();
+    return false;
+  }
+  if (!beginMessage(MessageType::kFileChunk, 20 + length, output)) return false;
+  output.insert(output.end(), stream.begin(), stream.end());
+  appendU32(output, offset);
+  output.insert(output.end(), bytes, bytes + length);
+  return true;
+}
+
+bool encodeFileEnd(const StreamUuid& stream, uint32_t totalBytes,
+                   std::vector<uint8_t>& output) {
+  std::vector<uint8_t> payload(stream.begin(), stream.end());
+  appendU32(payload, totalBytes);
+  return wrap(MessageType::kFileEnd, payload, output);
+}
+
 bool AudioStreamSession::encodeStartMessage(std::vector<uint8_t>& output) const {
   return encodeStart(stream_, output);
 }

@@ -22,15 +22,22 @@ constexpr uint32_t kSdFrequencyHz = 10000000;
 
 constexpr uint32_t kRecordingSeconds = 10;
 constexpr char kRecordingPath[] = "/test.wav";
+constexpr char kCaptureDirectory[] = "/captures";
 
-// One second of canonical audio. Overflow is counted and reported; frames are never
-// silently accepted after the bounded queue is full.
-constexpr size_t kAudioQueueFrames = 50;
+// The SD-first path does not queue live PCM. Keep the legacy queue minimally
+// allocated until the streaming controller interface is simplified.
+constexpr size_t kAudioQueueFrames = 1;
 constexpr uint32_t kFrameDiagnosticInterval = 500;
+constexpr BaseType_t kAudioCaptureCore = 0;
 
 constexpr uint16_t kTcpAudioPort = 8765;
 constexpr uint32_t kHeartbeatIntervalMs = 5000;
-constexpr size_t kTcpFramesPerPass = 8;
+// Android renews the active capture lease at kHeartbeatIntervalMs. Capture is
+// finalized safely if no matching control heartbeat arrives before this limit.
+constexpr uint32_t kCaptureLeaseTimeoutMs = 15000;
+// Keep each live send below the TCP MSS and let ACKs advance the small lwIP
+// send window between frames instead of filling it with a multi-frame burst.
+constexpr size_t kTcpFramesPerPass = 1;
 constexpr uint32_t kTcpPassBudgetMs = 12;
 constexpr uint32_t kStreamDiagnosticIntervalMs = 5000;
 constexpr int kTcpKeepaliveIdleSeconds = 10;

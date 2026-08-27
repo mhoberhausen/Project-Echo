@@ -11,6 +11,7 @@ class SessionRecordTest {
             durationMillis = 65_432,
             transcript = "Concise transcript",
             originalTranscript = "Um, concise transcript",
+            transcriptSegments = listOf(TranscriptSegment(0, 1_200, "Um, concise transcript")),
             transcriptionModel = TranscriptionModel.FAST,
             nowUtcMillis = 1_704_067_200_000,
             zoneId = ZoneId.of("America/New_York"),
@@ -20,6 +21,7 @@ class SessionRecordTest {
         assertEquals(1_704_067_200_000, session.createdAtUtcMillis)
         assertEquals("Session · Dec 31, 2023 · 7:00 PM", session.title)
         assertEquals(SessionStatus.TRANSCRIBED, session.status)
+        assertEquals(1_200, session.transcriptSegments.single().endMillis)
         assertEquals("1:05", SessionMetadata.displayDuration(session.durationMillis))
     }
 

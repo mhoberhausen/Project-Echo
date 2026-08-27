@@ -7,6 +7,7 @@ import com.mobileobie.echo.transcription.TranscriptCleaner
 import com.mobileobie.echo.transcription.TranscriptionQueue
 import com.mobileobie.echo.transcription.TranscriptionProcessor
 import com.mobileobie.echo.transcription.WhisperTranscriber
+import com.mobileobie.echo.transcription.PassthroughSpeakerDiarizer
 import com.mobileobie.echo.active.ActiveListeningSettings
 import com.mobileobie.echo.external.ExternalDeviceSettings
 import kotlinx.coroutines.CoroutineScope
@@ -30,11 +31,13 @@ class AppContainer(application: Application) {
     val sessionRepository = SQLiteSessionRepository(application)
     val cleaner = TranscriptCleaner()
     val transcriber = SerializedTranscriber(WhisperTranscriber(application))
+    val diarizer = PassthroughSpeakerDiarizer
     val activeListeningSettings = ActiveListeningSettings(application)
     val externalDeviceSettings = ExternalDeviceSettings(application)
     val transcriptionProcessor = TranscriptionProcessor(
         sessionRepository,
         transcriber,
+        diarizer,
         cleaner,
         activeListeningSettings::cleanupPolicy,
     )

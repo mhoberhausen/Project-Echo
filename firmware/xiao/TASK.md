@@ -274,6 +274,15 @@ HUH1 TCP server: 8765
 
 ## Phase 5: BLE discovery, association, and control
 
+- [x] Implement explicit TCP `START`, `HEARTBEAT`, and `STOP` control; accepting a socket
+  no longer starts the microphone.
+- [x] Enforce a renewable 15-second TCP capture lease with monotonic heartbeat counters.
+- [x] Record active captures to a temporary WAV on microSD and finalize atomically on
+  explicit stop or lease expiry.
+- [x] Separate capture completion from file transfer with resumable `FETCH`, offset-tagged
+  `FILE_CHUNK`, `FILE_END`, and deletion-authorizing `ACK` messages.
+- [x] Add a Python reference controller and an end-to-end socket contract test.
+
 - [ ] Define a Huh? device-information/control BLE service with versioned characteristics.
 - [ ] Advertise enough identity for Android's explicit companion-device association flow.
 - [ ] Support commands for status, configure network, start, pause, resume, and turn off.
@@ -315,11 +324,11 @@ UNPAIRED -> DISCONNECTED -> CONNECTING -> READY -> STREAMING
 - [x] Storage failure is reported only when SD-backed behavior is actually enabled.
 - [x] Logs contain numeric counters and state changes, never audio or secrets.
 
-## microSD backfill
+## microSD recovery
 
-SD backfill is not part of the first implementation. Keep interfaces open for it, but do
-not delay live streaming to implement recovery. A later phase may add a circular spool and
-deduplicate by device ID, stream ID, and sample range.
+The active finalized capture can now be fetched by capture ID and byte offset and is kept
+until acknowledged. Remaining work is a persistent boot-time manifest/list command for
+discovering and recovering older unacknowledged captures after device restart.
 
 ## Verification
 
@@ -327,6 +336,8 @@ deduplicate by device ID, stream ID, and sample range.
 - [x] SD test build still produces a valid 320,044-byte ten-second WAV file.
 - [ ] Known PCM pattern arrives on Android with exact sample values and ordering.
 - [x] Protocol fixtures match Android for every message type.
+- [x] Python socket integration covers connect-without-capture, explicit start, renewable
+  heartbeats, stop, fetch, length verification, and acknowledgement.
 - [x] TCP writes split/coalesce without affecting Android framing in host fixtures.
 - [ ] Duplicate-frame behavior is deterministic.
 - [ ] Deliberate short gaps are reported and repaired by Android as specified.

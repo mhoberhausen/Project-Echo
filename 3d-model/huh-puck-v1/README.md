@@ -9,6 +9,8 @@ Camera-removed, USB-C-only, no-battery enclosure for the XIAO ESP32S3 Sense.
   into the electronics cavity.
 - Uses the traced Huh logo itself as the open-through microphone grille; the
   separate rounded vent slots have been removed.
+- Mirrors the cutout in the model so the logo reads correctly from the outside
+  when the lid is installed.
 
 The lid STL is already oriented with the logo face on the print bed and the
 retaining skirt upward. The logo openings print without support.

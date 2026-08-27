@@ -25,6 +25,9 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 - [x] Microphone permission and 16 kHz mono PCM capture through `AudioRecord`
 - [x] Start/stop recording flow with a visible timer
 - [x] Fully local `whisper.cpp` transcription with bundled `tiny.en` and `base.en` models
+- [x] Preserve Whisper segment start/end timestamps with each saved transcript
+- [x] Run an explicit post-transcription speaker-diarization boundary; the current local
+  placeholder preserves segments without assigning speaker labels
 - [x] Deterministic filler-word cleanup with access to the original transcript
 - [x] Fully local LiteRT-LM inference with bundled Gemma 3 1B int4
 - [x] Structured response parsing for summary, intent, key points, and action items
@@ -127,6 +130,8 @@ Each successful Manual transcription creates an app-private persisted session wi
   in the device's local timezone
 - [x] Audio-derived duration
 - [x] Transcription model, cleaned transcript, and original transcript
+- [x] Timestamped Whisper segments, including nullable speaker IDs reserved for the local
+  diarization pipeline
 - [x] Processing status: Transcribed, Queued, Processing, Processed, or Failed
 - [x] Persisted processed text and local-LLM topic tags
 - [x] Full-content detail view from the navigation drawer
@@ -141,6 +146,8 @@ Compose UI while avoiding an additional annotation-processor toolchain for the P
 
 ### Processing Pipeline Boundary
 
+- [x] Run diarization after Whisper transcription and before transcript persistence and
+  cleanup; the placeholder currently performs no speaker inference
 - [x] Save the transcript before offering local LLM processing.
 - [x] Allow a Pending or Failed saved transcript to start/retry processing from its
   session detail view; disable the action while Queued or Processing.

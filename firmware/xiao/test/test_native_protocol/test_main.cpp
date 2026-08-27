@@ -125,6 +125,22 @@ void testAllControlMessageLayouts() {
   TEST_ASSERT_EQUAL_HEX8(0x34, bytes[13]);
   TEST_ASSERT_EQUAL_UINT8(0, bytes[14]);
   TEST_ASSERT_EQUAL_UINT8(14, bytes[15]);
+
+  TEST_ASSERT_TRUE(huh::protocol::encodeAck(stream, bytes));
+  assertEnvelope(bytes, MessageType::kAck, 16);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(stream.data(), bytes.data() + 12, stream.size());
+
+  const uint8_t chunk[] = {1, 2, 3, 4};
+  TEST_ASSERT_TRUE(huh::protocol::encodeFileChunk(stream, 1024, chunk,
+                                                  sizeof(chunk), bytes));
+  assertEnvelope(bytes, MessageType::kFileChunk, 24);
+  TEST_ASSERT_EQUAL_UINT8(4, bytes[31]);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(chunk, bytes.data() + 32, sizeof(chunk));
+
+  TEST_ASSERT_TRUE(huh::protocol::encodeFileEnd(stream, 4096, bytes));
+  assertEnvelope(bytes, MessageType::kFileEnd, 20);
+  TEST_ASSERT_EQUAL_UINT8(0x10, bytes[30]);
+  TEST_ASSERT_EQUAL_UINT8(0x00, bytes[31]);
 }
 
 void testOversizedPayloadIsRejected() {

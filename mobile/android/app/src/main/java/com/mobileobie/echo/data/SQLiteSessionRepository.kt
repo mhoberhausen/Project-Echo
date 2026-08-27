@@ -12,6 +12,7 @@ import com.mobileobie.echo.model.SessionRecord
 import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.model.TranscriptionModel
+import com.mobileobie.echo.model.TranscriptSegment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +83,7 @@ class SQLiteSessionRepository(
         id: String,
         transcript: String,
         originalTranscript: String,
+        segments: List<TranscriptSegment>,
     ) = withContext(Dispatchers.IO) {
         val cleaned = transcript.trim()
         val original = originalTranscript.trim()
@@ -89,6 +91,7 @@ class SQLiteSessionRepository(
         update(id, ContentValues().apply {
             put(COLUMN_TRANSCRIPT, cleaned)
             put(COLUMN_ORIGINAL_TRANSCRIPT, original)
+            put(COLUMN_TRANSCRIPT_SEGMENTS_JSON, segments.toJson().toString())
             put(COLUMN_STATUS, SessionStatus.TRANSCRIBED.name)
             putNull(COLUMN_AUDIO_PATH)
             put(COLUMN_UPDATED_AT, System.currentTimeMillis())
@@ -147,6 +150,7 @@ class SQLiteSessionRepository(
         put(COLUMN_LONGEST_INTERNAL_SILENCE, longestInternalSilenceMillis)
         put(COLUMN_CONVERSATION_END_SILENCE, conversationEndSilenceMillis)
         put(COLUMN_EXTERNAL_METADATA_JSON, externalDevice?.toJson()?.toString())
+        put(COLUMN_TRANSCRIPT_SEGMENTS_JSON, transcriptSegments.toJson().toString())
     }
 
     private fun Cursor.session() = SessionRecord(
@@ -174,6 +178,9 @@ class SQLiteSessionRepository(
         externalDevice = nullableString(COLUMN_EXTERNAL_METADATA_JSON)?.let { json ->
             runCatching { externalMetadata(json) }.getOrNull()
         },
+        transcriptSegments = runCatching {
+            transcriptSegments(nullableString(COLUMN_TRANSCRIPT_SEGMENTS_JSON) ?: "[]")
+        }.getOrDefault(emptyList()),
     )
 
     private fun Cursor.string(column: String) = getString(getColumnIndexOrThrow(column))
@@ -206,12 +213,15 @@ class SQLiteSessionRepository(
             if (oldVersion < 4) {
                 db.execSQL("ALTER TABLE $TABLE_SESSIONS ADD COLUMN $COLUMN_EXTERNAL_METADATA_JSON TEXT")
             }
+            if (oldVersion < 5) {
+                db.execSQL("ALTER TABLE $TABLE_SESSIONS ADD COLUMN $COLUMN_TRANSCRIPT_SEGMENTS_JSON TEXT NOT NULL DEFAULT '[]'")
+            }
         }
     }
 
     companion object {
         private const val DATABASE_NAME = "echo_keep.db"
-        private const val DATABASE_VERSION = 4
+        private const val DATABASE_VERSION = 5
         private const val TABLE_SESSIONS = "sessions"
         private const val COLUMN_ID = "id"
         private const val COLUMN_CREATED_AT = "created_at_utc"
@@ -231,6 +241,7 @@ class SQLiteSessionRepository(
         private const val COLUMN_LONGEST_INTERNAL_SILENCE = "longest_internal_silence_millis"
         private const val COLUMN_CONVERSATION_END_SILENCE = "conversation_end_silence_millis"
         private const val COLUMN_EXTERNAL_METADATA_JSON = "external_metadata_json"
+        private const val COLUMN_TRANSCRIPT_SEGMENTS_JSON = "transcript_segments_json"
         private val ALL_COLUMNS = arrayOf(
             COLUMN_ID, COLUMN_CREATED_AT, COLUMN_UPDATED_AT, COLUMN_DURATION, COLUMN_TITLE,
             COLUMN_STATUS, COLUMN_TRANSCRIPT, COLUMN_ORIGINAL_TRANSCRIPT, COLUMN_PROCESS_TEXT,
@@ -238,6 +249,7 @@ class SQLiteSessionRepository(
             COLUMN_SPEECH_DURATION, COLUMN_SPEECH_SEGMENT_COUNT,
             COLUMN_LONGEST_INTERNAL_SILENCE, COLUMN_CONVERSATION_END_SILENCE,
             COLUMN_EXTERNAL_METADATA_JSON,
+            COLUMN_TRANSCRIPT_SEGMENTS_JSON,
         )
         private val SQL_CREATE_SESSIONS = """
             CREATE TABLE $TABLE_SESSIONS (
@@ -258,9 +270,34 @@ class SQLiteSessionRepository(
                 $COLUMN_SPEECH_SEGMENT_COUNT INTEGER NOT NULL DEFAULT 0,
                 $COLUMN_LONGEST_INTERNAL_SILENCE INTEGER NOT NULL DEFAULT 0,
                 $COLUMN_CONVERSATION_END_SILENCE INTEGER NOT NULL DEFAULT 0,
-                $COLUMN_EXTERNAL_METADATA_JSON TEXT
+                $COLUMN_EXTERNAL_METADATA_JSON TEXT,
+                $COLUMN_TRANSCRIPT_SEGMENTS_JSON TEXT NOT NULL DEFAULT '[]'
             )
         """.trimIndent()
+    }
+}
+
+private fun List<TranscriptSegment>.toJson() = JSONArray().apply {
+    forEach { segment ->
+        put(JSONObject().apply {
+            put("start_ms", segment.startMillis)
+            put("end_ms", segment.endMillis)
+            put("text", segment.text)
+            put("speaker_id", segment.speakerId)
+        })
+    }
+}
+
+private fun transcriptSegments(json: String): List<TranscriptSegment> = JSONArray(json).let { array ->
+    List(array.length()) { index ->
+        array.getJSONObject(index).let { value ->
+            TranscriptSegment(
+                startMillis = value.getLong("start_ms"),
+                endMillis = value.getLong("end_ms"),
+                text = value.getString("text"),
+                speakerId = value.nullableString("speaker_id"),
+            )
+        }
     }
 }
 

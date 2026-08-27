@@ -6,13 +6,15 @@
 #include "../audio/PdmAudioCapture.h"
 #include "AudioFrameQueue.h"
 #include "ConnectionState.h"
+#include "../storage/SdWavRecorder.h"
 
 namespace huh::runtime {
 
 class StreamingController {
  public:
-  explicit StreamingController(audio::PdmAudioCapture& capture)
-      : capture_(capture) {}
+  StreamingController(audio::PdmAudioCapture& capture,
+                      storage::SdWavRecorder& recorder)
+      : capture_(capture), recorder_(recorder) {}
 
   bool begin(size_t queueCapacityFrames);
   bool startCapture(int clockPin, int dataPin);
@@ -33,6 +35,7 @@ class StreamingController {
   void captureLoop();
 
   audio::PdmAudioCapture& capture_;
+  storage::SdWavRecorder& recorder_;
   AudioFrameQueue queue_;
   TaskHandle_t captureTask_ = nullptr;
   std::atomic<bool> captureRequested_{false};

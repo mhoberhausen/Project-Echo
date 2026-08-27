@@ -4,5 +4,5 @@ import com.mobileobie.echo.audio.RecordedAudio
 import com.mobileobie.echo.model.TranscriptionModel
 
 interface Transcriber {
-    suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel): String
+    suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel): TimestampedTranscript
 }

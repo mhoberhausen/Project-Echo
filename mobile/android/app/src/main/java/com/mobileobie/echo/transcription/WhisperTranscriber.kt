@@ -5,6 +5,7 @@ import com.mobileobie.echo.audio.RecordedAudio
 import com.mobileobie.echo.model.TranscriptionModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 
 /**
@@ -15,16 +16,15 @@ class WhisperTranscriber(private val context: Context) : Transcriber {
     override suspend fun transcribe(
         audio: RecordedAudio,
         model: TranscriptionModel,
-    ): String = withContext(Dispatchers.Default) {
+    ): TimestampedTranscript = withContext(Dispatchers.Default) {
         require(audio.sampleRateHz == 16_000) { "Whisper requires 16 kHz audio." }
         require(audio.samples.isNotEmpty()) { "No speech was recorded." }
         check(NativeWhisper.isAvailable) {
             "The offline Whisper engine is not installed in this build. See README.md for setup."
         }
         val modelFile = copyModelToFiles(model)
-        NativeWhisper.transcribe(modelFile.absolutePath, audio.samples)
-            .trim()
-            .also { if (it.isEmpty()) throw NoSpeechDetectedException() }
+        WhisperOutputParser.parse(NativeWhisper.transcribe(modelFile.absolutePath, audio.samples))
+            .also { if (it.text.isEmpty()) throw NoSpeechDetectedException() }
     }
 
     private fun copyModelToFiles(model: TranscriptionModel): File {
@@ -38,6 +38,28 @@ class WhisperTranscriber(private val context: Context) : Transcriber {
         return destination
     }
 
+}
+
+internal object WhisperOutputParser {
+    fun parse(json: String): TimestampedTranscript {
+        val segmentsJson = JSONObject(json).getJSONArray("segments")
+        val segments = buildList {
+            for (index in 0 until segmentsJson.length()) {
+                val segment = segmentsJson.getJSONObject(index)
+                val text = segment.getString("text").trim()
+                if (text.isNotEmpty()) {
+                    add(
+                        com.mobileobie.echo.model.TranscriptSegment(
+                            startMillis = segment.getLong("start_ms"),
+                            endMillis = segment.getLong("end_ms"),
+                            text = text,
+                        )
+                    )
+                }
+            }
+        }
+        return TimestampedTranscript(segments)
+    }
 }
 
 class NoSpeechDetectedException : IllegalStateException("Whisper did not detect any speech.")

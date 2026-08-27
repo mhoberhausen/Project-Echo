@@ -51,6 +51,14 @@ data class ExternalDeviceSessionMetadata(
     val interrupted: Boolean = false,
 )
 
+/** A Whisper text interval, ready for a future diarizer to attach a speaker label. */
+data class TranscriptSegment(
+    val startMillis: Long,
+    val endMillis: Long,
+    val text: String,
+    val speakerId: String? = null,
+)
+
 data class SessionRecord(
     val id: String,
     val createdAtUtcMillis: Long,
@@ -70,6 +78,7 @@ data class SessionRecord(
     val longestInternalSilenceMillis: Long = 0L,
     val conversationEndSilenceMillis: Long = 0L,
     val externalDevice: ExternalDeviceSessionMetadata? = null,
+    val transcriptSegments: List<TranscriptSegment> = emptyList(),
 )
 
 object SessionMetadata {
@@ -80,6 +89,7 @@ object SessionMetadata {
         durationMillis: Long,
         transcript: String,
         originalTranscript: String,
+        transcriptSegments: List<TranscriptSegment> = emptyList(),
         transcriptionModel: TranscriptionModel,
         nowUtcMillis: Long = System.currentTimeMillis(),
         zoneId: ZoneId = ZoneId.systemDefault(),
@@ -100,6 +110,7 @@ object SessionMetadata {
             transcriptionModel = transcriptionModel,
             source = SessionSource.MANUAL,
             audioPath = null,
+            transcriptSegments = transcriptSegments,
         )
     }
 

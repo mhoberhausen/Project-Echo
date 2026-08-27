@@ -68,8 +68,9 @@ module lid_logo_cutout() {
     // lid plate instead of using separate vent slots.
     translate([0, logo_y, -epsilon])
         linear_extrude(height=lid_plate + 2*epsilon)
-            resize([0, logo_height], auto=true)
-                import("huh_logo_trace.svg", center=true);
+            mirror([1, 0, 0])
+                resize([0, logo_height], auto=true)
+                    import("huh_logo_trace.svg", center=true);
 }
 
 module lid_skirt() {

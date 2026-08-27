@@ -305,29 +305,32 @@ enlarged merely to conceal a sustained sender deficit.
 
 ## Recommended BLE control and SD role
 
-Use BLE as the low-bandwidth control plane, not as a replacement for the existing PCM-over-
-Wi-Fi data plane. After explicit association, Android should write versioned commands for
+Use BLE as a low-bandwidth control plane, not as a replacement for SD-backed audio capture
+and resumable Wi-Fi file transfer. After explicit association, Android should write versioned commands for
 `START`, `PAUSE`, `RESUME`, and `STOP`; the XIAO should expose state and error notifications.
 An unknown or merely nearby phone must not start the microphone. Require an encrypted,
 authenticated BLE connection (and later bind the selected BLE identity to the TCP peer).
 
-Recommended behavior:
+Implemented TCP reference behavior:
 
-1. `START` opens a new stream epoch, starts PDM capture, and records canonical PCM/WAV data
-   to SD while attempting live Wi-Fi delivery.
+1. Connecting sends only `HELLO`; a controller-generated capture UUID in `START` opens a
+   new epoch and begins canonical PCM/WAV recording on SD.
 2. `PAUSE` stops capture after closing the current segment cleanly; `RESUME` begins a new
    segment/stream boundary rather than hiding elapsed time.
-3. `STOP` emits a normal HUH1 stop when possible, flushes and closes the SD file, releases
-   the microphone, and leaves BLE available for another explicit start.
-4. If Wi-Fi is unavailable or too slow, SD retains the recording for a future explicit
-   recovery protocol. SD backfill is not implemented yet and Android must not assume that
-   a failed live stream will be recovered automatically.
+3. `STOP` or a 15-second control-lease expiry flushes and atomically finalizes the WAV,
+   releases the microphone, and reports `STOP` before file transfer begins.
+4. `FETCH(capture_id, offset)` transfers offset-tagged `FILE_CHUNK` messages followed by
+   `FILE_END(total_bytes)`. `ACK(capture_id)` authorizes deletion from SD.
+5. A network failure never invalidates the finalized WAV. The current capture remains
+   fetchable from a requested offset while firmware remains powered. Boot-time manifests
+   and discovery of older retained captures remain future recovery work.
 
 ### BLE capture lease
 
-Treat active listening as a renewable BLE lease rather than a command that remains active
-indefinitely. While capture is active, Android sends an authenticated `KEEP_ALIVE` control
-message every 5 seconds. Each valid message renews a 15-second lease measured using the
+Treat active listening as a renewable control lease rather than a command that remains active
+indefinitely. The TCP reference controller sends `HEARTBEAT`; the future authenticated
+BLE service will send the equivalent `KEEP_ALIVE` control message every 5 seconds. Each
+valid message renews a 15-second lease measured using the
 XIAO's monotonic clock.
 
 If the BLE connection closes or the lease expires, the XIAO must:
@@ -345,16 +348,16 @@ restart capture: Android must issue a new `START`, preventing a phone that has m
 range from leaving the XIAO recording indefinitely.
 
 BLE link supervision/disconnect callbacks provide the fast path, but the application lease
-is still required because an apparently connected GATT session can become stale. The BLE
-lease is separate from HUH1 TCP `HEARTBEAT`, which detects data-transport liveness and does
-not grant permission to keep the microphone active.
+is still required because an apparently connected GATT session can become stale. TCP and
+BLE renewals will feed the same capture-lease manager, but a capture has only one selected
+controller/transport owner at a time; unrelated transport traffic cannot renew its lease.
 
 This hybrid keeps internet connectivity available through the user's LAN, gives the phone
 reliable start/stop control, and uses SD as durable capture rather than forcing high-rate
 uncompressed audio through BLE. Exact service/characteristic UUIDs, command acknowledgments,
 pairing material, and recovery manifests remain to be frozen before implementation.
-The initial lease timing is 5-second renewal / 15-second expiry and should be validated for
-Android background behavior and power use before release.
+The TCP implementation and Python reference tests use 5-second renewal / 15-second expiry.
+Android background behavior and the future BLE implementation still require validation.
 
 ## Timestamps and session metadata
 
