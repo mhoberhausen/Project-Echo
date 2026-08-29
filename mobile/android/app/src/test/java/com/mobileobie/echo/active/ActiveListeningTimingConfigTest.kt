@@ -11,6 +11,7 @@ class ActiveListeningTimingConfigTest {
         assertEquals(400, timing.speechStartThresholdMs)
         assertEquals(3_000, timing.minimumTranscriptSpeechMs)
         assertEquals(15_000, timing.conversationEndSilenceMs)
+        assertEquals(1_000, timing.quietBoundaryMs)
         assertEquals(2_000, timing.preRollBufferMs)
     }
 
@@ -21,6 +22,9 @@ class ActiveListeningTimingConfigTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             ActiveListeningTimingConfig(preRollBufferMs = -1)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            ActiveListeningTimingConfig(quietBoundaryMs = 0)
         }
         assertThrows(IllegalArgumentException::class.java) {
             ActiveListeningTimingConfig(

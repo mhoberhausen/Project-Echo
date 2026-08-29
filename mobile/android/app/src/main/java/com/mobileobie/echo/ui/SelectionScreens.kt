@@ -14,6 +14,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.Card
+import androidx.compose.material.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedButton
 import androidx.compose.material.OutlinedTextField
@@ -29,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mobileobie.echo.settings.AiProviderConfig
@@ -49,19 +53,21 @@ internal fun AudioInputDialog(
         text = {
             Column {
                 AudioInputChoice.entries.forEach { choice ->
+                    val enabled = choice == AudioInputChoice.PHONE ||
+                        (choice == AudioInputChoice.XIAO && xiaoConfigured)
                     val supporting = when (choice) {
                         AudioInputChoice.PHONE -> "Built-in microphone"
                         AudioInputChoice.BLUETOOTH -> "Setup required · capture support is coming"
                         AudioInputChoice.XIAO -> if (xiaoConfigured) "Configured on your local network" else "Setup required"
                     }
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.52f).padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(
                             selected = selected == choice,
-                            onClick = { if (choice == AudioInputChoice.PHONE || xiaoConfigured) onSelected(choice) },
-                            enabled = choice == AudioInputChoice.PHONE || (choice == AudioInputChoice.XIAO && xiaoConfigured),
+                            onClick = { if (enabled) onSelected(choice) },
+                            enabled = enabled,
                         )
                         Column(Modifier.padding(start = 8.dp)) {
                             Text(choice.label, fontWeight = FontWeight.Bold)
@@ -146,7 +152,11 @@ private fun AiProviderCard(
             Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("↕", modifier = Modifier.padding(end = 14.dp), fontWeight = FontWeight.Bold)
+            Icon(
+                imageVector = Icons.Default.Menu,
+                contentDescription = "Drag to reorder ${provider.name}",
+                modifier = Modifier.padding(end = 14.dp),
+            )
             Column(Modifier.weight(1f)) {
                 Text(provider.name, fontWeight = FontWeight.Bold)
                 Text(provider.kind.label)

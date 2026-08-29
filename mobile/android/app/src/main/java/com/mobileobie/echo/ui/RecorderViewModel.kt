@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobileobie.echo.audio.AudioRecorder
+import com.mobileobie.echo.audio.IncrementalAudioRecorder
 import com.mobileobie.echo.data.SessionRepository
 import com.mobileobie.echo.interpretation.TranscriptInterpreter
 import com.mobileobie.echo.model.RecorderUiState
@@ -13,6 +14,8 @@ import com.mobileobie.echo.model.SessionRecord
 import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.TranscriptionModel
 import com.mobileobie.echo.transcription.Transcriber
+import com.mobileobie.echo.transcription.IncrementalTranscriptionWorker
+import com.mobileobie.echo.transcription.TimestampedTranscript
 import com.mobileobie.echo.transcription.TranscriptCleaner
 import com.mobileobie.echo.transcription.SpeakerDiarizer
 import com.mobileobie.echo.transcription.SpeakerLabels
@@ -31,12 +34,14 @@ class RecorderViewModel(
     private val cleaner: TranscriptCleaner,
     private val interpreter: TranscriptInterpreter,
     private val sessionRepository: SessionRepository,
+    private val quietBoundaryMs: () -> Long = { 1_000L },
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(RecorderUiState())
     val uiState: StateFlow<RecorderUiState> = _uiState.asStateFlow()
     val sessions: StateFlow<List<SessionRecord>> = sessionRepository.sessions
     private var timerJob: Job? = null
     private var processingJob: Job? = null
+    private var chunkWorker: IncrementalTranscriptionWorker? = null
 
     init {
         viewModelScope.launch {
@@ -47,7 +52,14 @@ class RecorderViewModel(
     fun startRecording() {
         if (_uiState.value.phase == RecordingPhase.RECORDING) return
         viewModelScope.launch {
-            runCatching { recorder.start() }
+            runCatching {
+                if (recorder is IncrementalAudioRecorder) {
+                    startChunkTranscription(_uiState.value.selectedModel)
+                    recorder.startIncremental(quietBoundaryMs()) { chunk ->
+                        chunkWorker?.offer(chunk)
+                    }
+                } else recorder.start()
+            }
                 .onSuccess {
                     _uiState.update {
                         RecorderUiState(
@@ -57,7 +69,10 @@ class RecorderViewModel(
                     }
                     startTimer()
                 }
-                .onFailure(::showError)
+                .onFailure {
+                    cancelChunkTranscription()
+                    showError(it)
+                }
         }
     }
 
@@ -69,7 +84,8 @@ class RecorderViewModel(
             runCatching {
                 val audio = recorder.stop()
                 val model = _uiState.value.selectedModel
-                val timestamped = transcriber.transcribe(audio, model)
+                val timestamped = finishChunkTranscription()
+                    ?: transcriber.transcribe(audio, model)
                 val diarized = diarizer.diarize(audio, timestamped)
                 val original = diarized.text
                 val cleaned = cleaner.clean(original)
@@ -105,6 +121,7 @@ class RecorderViewModel(
     fun cancelRecording() {
         if (_uiState.value.phase != RecordingPhase.RECORDING) return
         timerJob?.cancel()
+        cancelChunkTranscription()
         viewModelScope.launch {
             runCatching { recorder.stop() }
                 .onSuccess {
@@ -267,6 +284,28 @@ class RecorderViewModel(
         }
     }
 
+    private fun startChunkTranscription(model: TranscriptionModel) {
+        cancelChunkTranscription()
+        chunkWorker = IncrementalTranscriptionWorker(
+            viewModelScope,
+            transcriber,
+            model,
+            onDiagnostic = { Log.i(LOG_TAG, it) },
+        )
+    }
+
+    private suspend fun finishChunkTranscription(): TimestampedTranscript? {
+        val worker = chunkWorker ?: return null
+        val transcript = worker.finish()
+        chunkWorker = null
+        return transcript
+    }
+
+    private fun cancelChunkTranscription() {
+        chunkWorker?.cancel()
+        chunkWorker = null
+    }
+
     private fun showError(error: Throwable) {
         _uiState.update {
             it.copy(
@@ -278,6 +317,7 @@ class RecorderViewModel(
 
     override fun onCleared() {
         processingJob?.cancel()
+        cancelChunkTranscription()
         recorder.release()
         interpreter.release()
     }

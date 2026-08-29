@@ -1,0 +1,5 @@
+interface:
+  display_name: "Persona Walkthrough Specialist"
+  short_description: "Simulate persona-led UX journey walkthroughs"
+  brand_color: "#10B981"
+  default_prompt: "Use $persona-walkthrough-specialist to evaluate this Huh? journey through a defined persona."

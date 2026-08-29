@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
                 },
             ),
             sessionRepository = container.sessionRepository,
+            quietBoundaryMs = { container.activeListeningSettings.quietBoundaryMs.toLong() },
         )
 
         setContent {
@@ -79,6 +80,9 @@ class MainActivity : ComponentActivity() {
             }
             var minimumTranscriptSpeechSeconds by remember {
                 mutableFloatStateOf(container.activeListeningSettings.minimumTranscriptSpeechMs / 1_000f)
+            }
+            var quietBoundaryMs by remember {
+                mutableFloatStateOf(container.activeListeningSettings.quietBoundaryMs.toFloat())
             }
             var preRollSeconds by remember {
                 mutableFloatStateOf(container.activeListeningSettings.preRollBufferMs / 1_000f)
@@ -259,6 +263,7 @@ class MainActivity : ComponentActivity() {
                     onRetryTranscription = { container.transcriptionQueue.enqueue(it) },
                     speechStartThresholdMs = speechStartThresholdMs,
                     minimumTranscriptSpeechSeconds = minimumTranscriptSpeechSeconds,
+                    quietBoundaryMs = quietBoundaryMs,
                     preRollSeconds = preRollSeconds,
                     minimumTranscriptWords = minimumTranscriptWords,
                     onSpeechStartThresholdChanged = {
@@ -269,6 +274,11 @@ class MainActivity : ComponentActivity() {
                     onMinimumTranscriptSpeechChanged = {
                         minimumTranscriptSpeechSeconds = it
                         container.activeListeningSettings.minimumTranscriptSpeechMs = (it * 1_000).toInt()
+                        refreshActiveListeningConfiguration()
+                    },
+                    onQuietBoundaryChanged = {
+                        quietBoundaryMs = it
+                        container.activeListeningSettings.quietBoundaryMs = it.toInt()
                         refreshActiveListeningConfiguration()
                     },
                     onPreRollChanged = {
@@ -285,6 +295,7 @@ class MainActivity : ComponentActivity() {
                         speechStartThresholdMs = container.activeListeningSettings.speechStartThresholdMs.toFloat()
                         minimumTranscriptSpeechSeconds =
                             container.activeListeningSettings.minimumTranscriptSpeechMs / 1_000f
+                        quietBoundaryMs = container.activeListeningSettings.quietBoundaryMs.toFloat()
                         silenceSeconds =
                             container.activeListeningSettings.conversationEndSilenceSeconds.toFloat()
                         preRollSeconds = container.activeListeningSettings.preRollBufferMs / 1_000f

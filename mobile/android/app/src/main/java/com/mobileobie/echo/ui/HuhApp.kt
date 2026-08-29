@@ -80,7 +80,7 @@ import com.mobileobie.echo.settings.AudioInputChoice
 import kotlinx.coroutines.launch
 
 private enum class AppDestination { HOME, MANUAL, LIVE, SESSION, PREFERENCES, ADVANCED, EXTERNAL_DEVICE, AI_SELECTION }
-private enum class ChatFilter(val label: String) { ALL("All"), PENDING("Pending"), PROCESSED("Processed") }
+private enum class ChatFilter(val label: String) { ALL("All"), PENDING("Unprocessed"), PROCESSED("Processed") }
 
 @Composable
 fun HuhApp(
@@ -112,10 +112,12 @@ fun HuhApp(
     onRetryTranscription: (SessionRecord) -> Unit = {},
     speechStartThresholdMs: Float = 400f,
     minimumTranscriptSpeechSeconds: Float = 3f,
+    quietBoundaryMs: Float = 1_000f,
     preRollSeconds: Float = 2f,
     minimumTranscriptWords: Float = 3f,
     onSpeechStartThresholdChanged: (Float) -> Unit = {},
     onMinimumTranscriptSpeechChanged: (Float) -> Unit = {},
+    onQuietBoundaryChanged: (Float) -> Unit = {},
     onPreRollChanged: (Float) -> Unit = {},
     onMinimumTranscriptWordsChanged: (Float) -> Unit = {},
     onResetAdvancedDefaults: () -> Unit = {},
@@ -274,11 +276,13 @@ fun HuhApp(
                     AppDestination.ADVANCED -> AdvancedPreferencesScreen(
                         speechStartThresholdMs = speechStartThresholdMs,
                         minimumTranscriptSpeechSeconds = minimumTranscriptSpeechSeconds,
+                        quietBoundaryMs = quietBoundaryMs,
                         conversationEndSilenceSeconds = silenceSeconds,
                         preRollSeconds = preRollSeconds,
                         minimumTranscriptWords = minimumTranscriptWords,
                         onSpeechStartThresholdChanged = onSpeechStartThresholdChanged,
                         onMinimumTranscriptSpeechChanged = onMinimumTranscriptSpeechChanged,
+                        onQuietBoundaryChanged = onQuietBoundaryChanged,
                         onConversationEndSilenceChanged = onSilenceSecondsChanged,
                         onPreRollChanged = onPreRollChanged,
                         onMinimumTranscriptWordsChanged = onMinimumTranscriptWordsChanged,
@@ -563,13 +567,16 @@ private fun SessionDetailScreen(
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
     ) {
-        Row(
+        Text(
+            session.title,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(session.title, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            TextButton(onClick = { renameSession = true }) { Text("Rename") }
-        }
+        )
+        TextButton(
+            onClick = { renameSession = true },
+            modifier = Modifier.align(Alignment.End),
+        ) { Text("Rename") }
         Text(
             SessionMetadata.displayDate(session.createdAtUtcMillis),
             modifier = Modifier.padding(top = 8.dp),
@@ -1082,11 +1089,13 @@ private fun ExternalDeviceScreen(
 private fun AdvancedPreferencesScreen(
     speechStartThresholdMs: Float,
     minimumTranscriptSpeechSeconds: Float,
+    quietBoundaryMs: Float,
     conversationEndSilenceSeconds: Float,
     preRollSeconds: Float,
     minimumTranscriptWords: Float,
     onSpeechStartThresholdChanged: (Float) -> Unit,
     onMinimumTranscriptSpeechChanged: (Float) -> Unit,
+    onQuietBoundaryChanged: (Float) -> Unit,
     onConversationEndSilenceChanged: (Float) -> Unit,
     onPreRollChanged: (Float) -> Unit,
     onMinimumTranscriptWordsChanged: (Float) -> Unit,
@@ -1147,6 +1156,16 @@ private fun AdvancedPreferencesScreen(
             onValueChange = onMinimumTranscriptSpeechChanged,
             valueRange = 1f..15f,
             steps = 13,
+        )
+        Divider(Modifier.padding(vertical = 20.dp))
+        PreferenceHeading("Transcription chunks")
+        AdvancedSlider(
+            title = "Split after ${quietBoundaryMs.toInt()} ms of quiet",
+            supportingText = "Each completed chunk is transcribed while Listen Now or Keep an Ear Out continues recording. This does not end the conversation.",
+            value = quietBoundaryMs,
+            onValueChange = onQuietBoundaryChanged,
+            valueRange = 250f..3_000f,
+            steps = 10,
         )
         Divider(Modifier.padding(vertical = 20.dp))
         PreferenceHeading("Conversation ending")

@@ -108,6 +108,39 @@ class TranscriptionProcessorTest {
     }
 
     @Test
+    fun precomputedChunksSkipWhisperButStillRunFullAudioDiarization() = runBlocking {
+        val repository = FakeRepository()
+        val segment = TranscriptSegment(250, 750, "Already transcribed")
+        val session = queuedSession("incremental").copy(transcriptSegments = listOf(segment))
+        repository.create(session)
+        var diarizedAudioSamples = 0
+        val processor = TranscriptionProcessor(
+            repository,
+            object : Transcriber {
+                override suspend fun transcribe(
+                    audio: RecordedAudio,
+                    model: TranscriptionModel,
+                ): TimestampedTranscript = error("Whisper should not run twice")
+            },
+            SpeakerDiarizer { audio, transcript ->
+                diarizedAudioSamples = audio.samples.size
+                transcript.copy(
+                    segments = transcript.segments.map { it.copy(speakerId = "speaker-1") },
+                )
+            },
+            TranscriptCleaner(),
+            { AutomaticCaptureCleanupPolicy(0) },
+        )
+
+        assertEquals(true, processor.process(session.id))
+
+        val saved = repository.sessions.value.single()
+        assertEquals(320, diarizedAudioSamples)
+        assertEquals("Speaker 1: Already transcribed", saved.transcript)
+        assertEquals("speaker-1", saved.transcriptSegments.single().speakerId)
+    }
+
+    @Test
     fun failedTranscriptionIsRetainedForExplicitRetry() = runBlocking {
         val repository = FakeRepository()
         val session = queuedSession("failed-transcription")

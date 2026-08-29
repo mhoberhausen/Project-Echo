@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Huh? — User Journey Storybook</title>
+  <style>
+    :root { --ink:#233337; --muted:#607176; --paper:#f3f7f6; --card:#fff; --teal:#00878a; --teal-dark:#006b6e; --line:#d8e2e0; --red:#dc4747; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    header { padding:64px clamp(24px,6vw,96px) 44px; color:white; background:linear-gradient(135deg,var(--teal-dark),var(--teal) 58%,#465d61); }
+    header p { max-width:760px; margin:12px 0 0; color:#e6ffff; font-size:1.08rem; }
+    h1 { margin:0; font-size:clamp(2.25rem,6vw,4.75rem); line-height:1; letter-spacing:-.045em; }
+    .eyebrow { margin-bottom:14px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+    nav { position:sticky; top:0; z-index:5; display:flex; gap:8px; overflow:auto; padding:12px clamp(16px,5vw,80px); background:rgba(243,247,246,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(10px); }
+    nav a { flex:0 0 auto; padding:9px 14px; color:var(--teal-dark); text-decoration:none; font-weight:750; border:1px solid var(--line); border-radius:999px; background:white; }
+    main { width:min(1500px,100%); margin:auto; padding:48px clamp(18px,4vw,64px) 96px; }
+    .intro { display:grid; grid-template-columns:2fr 1fr; gap:24px; margin-bottom:60px; }
+    .panel { padding:24px; background:var(--card); border:1px solid var(--line); border-radius:20px; box-shadow:0 8px 30px rgba(25,55,57,.06); }
+    .panel h2,.panel h3 { margin-top:0; }
+    .journey { scroll-margin-top:85px; margin:0 0 84px; }
+    .journey-head { display:flex; justify-content:space-between; gap:18px; align-items:end; margin-bottom:22px; }
+    .journey h2 { margin:0; font-size:clamp(1.7rem,3vw,2.55rem); letter-spacing:-.025em; }
+    .journey-head p { max-width:700px; margin:6px 0 0; color:var(--muted); }
+    .badge { flex:0 0 auto; padding:6px 11px; border-radius:999px; color:var(--teal-dark); background:#dff3f1; font-size:.8rem; font-weight:850; text-transform:uppercase; letter-spacing:.06em; }
+    .badge.partial { color:#7c5410; background:#fff0cf; }
+    .steps { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(250px,320px); gap:18px; overflow-x:auto; padding:3px 3px 22px; scroll-snap-type:x proximity; }
+    .step { position:relative; scroll-snap-align:start; background:var(--card); border:1px solid var(--line); border-radius:22px; overflow:visible; box-shadow:0 10px 30px rgba(25,55,57,.07); }
+    .step:not(:last-child)::after { content:"→"; position:absolute; z-index:10; top:42%; right:-16px; width:32px; height:32px; display:grid; place-items:center; color:white; background:var(--teal); border-radius:50%; box-shadow:0 2px 8px rgba(25,55,57,.18); font-weight:900; }
+    .shot { position:relative; aspect-ratio:1008/2244; overflow:hidden; background:#e6eceb; border-bottom:1px solid var(--line); border-radius:21px 21px 0 0; }
+    .shot img { width:100%; height:100%; object-fit:cover; display:block; }
+    .step-copy { padding:17px 18px 20px; }
+    .number { display:inline-grid; place-items:center; width:27px; height:27px; margin-right:8px; border-radius:50%; color:white; background:var(--teal); font-size:.8rem; font-weight:900; }
+    .step h3 { display:inline; margin:0; font-size:1.03rem; }
+    .step p { margin:9px 0 0; color:var(--muted); font-size:.91rem; }
+    .note { padding:18px 20px; color:#4e6165; background:#eef4f3; border-left:4px solid var(--teal); border-radius:0 14px 14px 0; }
+    footer { padding:30px clamp(24px,6vw,96px); color:#d9eeee; background:#213437; }
+    code { padding:.12em .35em; border-radius:5px; background:#e8efee; }
+    @media (max-width:760px) { .intro { grid-template-columns:1fr; } .journey-head { align-items:start; flex-direction:column; } header { padding-top:42px; } }
+    @media print { nav { display:none; } .steps { grid-auto-flow:row; grid-template-columns:repeat(3,1fr); overflow:visible; } .step:not(:last-child)::after { display:none; } .journey { break-before:page; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Product storybook · Android</div>
+    <h1>Huh? user journeys</h1>
+    <p>A screen-by-screen map of how people capture, revisit, understand, and configure private conversations. Screens were captured from the current app on the Pixel target device.</p>
+  </header>
+  <nav aria-label="Journey index">
+    <a href="#manual">Manual capture</a><a href="#review">Review a session</a><a href="#share">Rename &amp; share</a><a href="#active">Active listening</a><a href="#input">Choose an input</a><a href="#ai">Choose AI</a><a href="#puck">Set up Puck</a>
+  </nav>
+  <main>
+    <section class="intro">
+      <div class="panel"><h2>How to read this</h2><p>Each row is one user goal. Cards run left to right and show the screen, the action that advances the journey, and the expected outcome. A screenshot may appear in several journeys when the actual product path overlaps.</p></div>
+      <div class="panel"><h3>Capture context</h3><p>Pixel 8 Pro · light theme · current debug build<br>Captured August 29, 2026</p><p><a href="reviews/baseline-finish-gate.md">Baseline gate</a> · <a href="reviews/persona-walkthrough.md">Persona walkthrough</a> · <a href="reviews/final-finish-gate.md">Final gate</a></p></div>
+    </section>
+
+    <section class="journey" id="manual">
+      <div class="journey-head"><div><h2>Capture a conversation manually</h2><p>The focused, foreground path from opening the app to a saved local transcript.</p></div><span class="badge">Implemented</span></div>
+      <div class="steps">
+        <article class="step"><div class="shot"><img src="screenshots/home.png" alt="Huh home screen"></div><div class="step-copy"><span class="number">1</span><h3>Home</h3><p>Choose <b>Listen Now</b> for an intentional one-time capture.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/manual-idle.png" alt="Listen Now ready state"></div><div class="step-copy"><span class="number">2</span><h3>Ready</h3><p>Select Fast or Accurate, then tap the central listening control.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/manual-recording.png" alt="Listen Now recording state"></div><div class="step-copy"><span class="number">3</span><h3>Recording</h3><p>The timer and red mark confirm capture. Tap <b>Stop listening</b> when finished.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/manual-processing.png" alt="Transcription processing state"></div><div class="step-copy"><span class="number">4</span><h3>Transcribing</h3><p>Whisper processes the recording locally while the progress state remains visible.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/session-detail-collapsed.png" alt="Saved session with collapsed transcript"></div><div class="step-copy"><span class="number">5</span><h3>Transcript ready</h3><p>The saved session exposes its transcript as an expandable section and offers optional inference.</p></div></article>
+      </div>
+    </section>
+
+    <section class="journey" id="review">
+      <div class="journey-head"><div><h2>Return to a past conversation</h2><p>Sessions remain available from the drawer and keep transcript content compact by default.</p></div><span class="badge">Implemented</span></div>
+      <div class="steps">
+        <article class="step"><div class="shot"><img src="screenshots/home.png" alt="Huh home screen"></div><div class="step-copy"><span class="number">1</span><h3>Home</h3><p>Open the navigation menu from the top-left icon.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/navigation-drawer.png" alt="What I Heard navigation drawer"></div><div class="step-copy"><span class="number">2</span><h3>What I Heard</h3><p>Filter the local session history and select the conversation to revisit.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/session-detail-collapsed.png" alt="Session detail screen"></div><div class="step-copy"><span class="number">3</span><h3>Session detail</h3><p>Review provenance and status, expand the transcript, or ask the selected AI method to make sense of it.</p></div></article>
+      </div>
+    </section>
+
+    <section class="journey" id="share">
+      <div class="journey-head"><div><h2>Organize or share a session</h2><p>Session identity and content sharing are explicit, separate actions.</p></div><span class="badge">Implemented</span></div>
+      <div class="steps">
+        <article class="step"><div class="shot"><img src="screenshots/session-detail-collapsed.png" alt="Session detail actions"></div><div class="step-copy"><span class="number">1</span><h3>Choose an action</h3><p>Rename is next to the title; Share is grouped with session-level actions.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/session-rename.png" alt="Rename session dialog"></div><div class="step-copy"><span class="number">2A</span><h3>Rename</h3><p>Give the session a recognizable title without changing transcript or inference state.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/session-share.png" alt="Choose session content to share dialog"></div><div class="step-copy"><span class="number">2B</span><h3>Share content</h3><p>Choose transcript or inferred summary. Session metadata is intentionally excluded.</p></div></article>
+      </div>
+    </section>
+
+    <section class="journey" id="active">
+      <div class="journey-head"><div><h2>Keep an ear out for conversations</h2><p>A persistent local listener captures conversation windows while the app is foregrounded or backgrounded.</p></div><span class="badge">Implemented</span></div>
+      <div class="steps">
+        <article class="step"><div class="shot"><img src="screenshots/home.png" alt="Huh home screen"></div><div class="step-copy"><span class="number">1</span><h3>Home</h3><p>Choose <b>Keep an Ear Out</b>.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/active-listening-idle.png" alt="Active listening introduction"></div><div class="step-copy"><span class="number">2</span><h3>Review privacy</h3><p>The screen explains background behavior, local processing, and the persistent notification before activation.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/active-listening-on.png" alt="Active listening enabled"></div><div class="step-copy"><span class="number">3</span><h3>Listening</h3><p>Pause temporarily or turn the service off. Detected conversations become local sessions.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/navigation-drawer.png" alt="Session history"></div><div class="step-copy"><span class="number">4</span><h3>Review captures</h3><p>Completed conversation windows appear with other sessions in What I Heard.</p></div></article>
+      </div>
+    </section>
+
+    <section class="journey" id="input">
+      <div class="journey-head"><div><h2>Choose where audio comes from</h2><p>The device action is globally available from the app bar.</p></div><span class="badge partial">Mixed availability</span></div>
+      <div class="steps">
+        <article class="step"><div class="shot"><img src="screenshots/home.png" alt="Device icon on app bar"></div><div class="step-copy"><span class="number">1</span><h3>Open device picker</h3><p>Tap the device icon from Home or another top-level screen.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/audio-device-picker.png" alt="Audio device picker"></div><div class="step-copy"><span class="number">2</span><h3>Select input</h3><p>This phone is available. Bluetooth honestly identifies capture as forthcoming; Puck requires setup.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/external-device.png" alt="External device setup"></div><div class="step-copy"><span class="number">3</span><h3>Add a Puck</h3><p>Enter the trusted-LAN endpoint details reported by compatible firmware.</p></div></article>
+      </div>
+    </section>
+
+    <section class="journey" id="ai">
+      <div class="journey-head"><div><h2>Choose how transcripts are interpreted</h2><p>Users can prioritize local-network inference while retaining the bundled on-device fallback.</p></div><span class="badge partial">Third-party setup only</span></div>
+      <div class="steps">
+        <article class="step"><div class="shot"><img src="screenshots/navigation-drawer.png" alt="Navigation drawer with Settings"></div><div class="step-copy"><span class="number">1</span><h3>Open Settings</h3><p>Settings is anchored at the bottom of the navigation drawer.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/preferences.png" alt="Settings screen"></div><div class="step-copy"><span class="number">2</span><h3>Open AI Selection</h3><p>The settings overview groups appearance, transcription, active listening, AI, and external-device controls.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/ai-selection.png" alt="AI Selection provider priority list"></div><div class="step-copy"><span class="number">3</span><h3>Prioritize methods</h3><p>Enable methods and drag to define fallback order. Gemma and OpenAI-compatible LAN endpoints execute today.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/session-detail-collapsed.png" alt="Make sense of this action on a session"></div><div class="step-copy"><span class="number">4</span><h3>Run inference</h3><p><b>Make sense of this</b> tries enabled providers in the chosen order and adds an expandable inferred summary.</p></div></article>
+      </div>
+      <p class="note">The captured provider screen reflects a private-LAN example. No cloud service or analytics is introduced by this journey.</p>
+    </section>
+
+    <section class="journey" id="puck">
+      <div class="journey-head"><div><h2>Configure a Huh? Puck</h2><p>The current trusted-LAN proof-of-concept is explicit about its security boundary.</p></div><span class="badge partial">POC</span></div>
+      <div class="steps">
+        <article class="step"><div class="shot"><img src="screenshots/preferences.png" alt="External Device entry in Settings"></div><div class="step-copy"><span class="number">1</span><h3>Settings</h3><p>Select <b>Configure Huh? Puck</b> under External Device.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/external-device.png" alt="Huh Puck network configuration"></div><div class="step-copy"><span class="number">2</span><h3>Enter connection</h3><p>Name the device, enter its local address and port, and optionally pin its reported device ID.</p></div></article>
+        <article class="step"><div class="shot"><img src="screenshots/audio-device-picker.png" alt="Huh Puck in audio picker"></div><div class="step-copy"><span class="number">3</span><h3>Select for capture</h3><p>Once configured, choose Huh? Puck from the global audio-device picker.</p></div></article>
+      </div>
+    </section>
+  </main>
+  <footer><b>Huh? User Journey Storybook</b><br>Open this file directly in a browser; all assets are local under <code>screenshots/</code>.</footer>
+</body>
+</html>

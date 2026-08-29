@@ -16,10 +16,19 @@ class RecorderViewModelFactory(
     private val cleaner: TranscriptCleaner,
     private val interpreter: TranscriptInterpreter,
     private val sessionRepository: SessionRepository,
+    private val quietBoundaryMs: () -> Long = { 1_000L },
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(RecorderViewModel::class.java))
-        return RecorderViewModel(recorder, transcriber, diarizer, cleaner, interpreter, sessionRepository) as T
+        return RecorderViewModel(
+            recorder,
+            transcriber,
+            diarizer,
+            cleaner,
+            interpreter,
+            sessionRepository,
+            quietBoundaryMs,
+        ) as T
     }
 }

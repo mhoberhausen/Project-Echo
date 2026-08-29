@@ -1,0 +1,5 @@
+interface:
+  display_name: "UI Finish-Gate Reviewer"
+  short_description: "Run evidence-led pre-ship UI finish gates"
+  brand_color: "#F97316"
+  default_prompt: "Use $ui-finish-gate-reviewer to run a product-specific finish gate on this interface."

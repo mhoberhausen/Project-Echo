@@ -8,7 +8,7 @@ import java.util.UUID
 enum class SessionStatus(val displayName: String) {
     TRANSCRIBING("Turning speech into words…"),
     TRANSCRIPTION_FAILED("Transcription failed"),
-    TRANSCRIBED("Pending"),
+    TRANSCRIBED("Transcript ready"),
     QUEUED("Queued"),
     PROCESSING("Processing"),
     PROCESSED("Processed"),
@@ -124,6 +124,7 @@ object SessionMetadata {
         longestInternalSilenceMillis: Long = 0L,
         conversationEndSilenceMillis: Long = 0L,
         externalDevice: ExternalDeviceSessionMetadata? = null,
+        transcriptSegments: List<TranscriptSegment> = emptyList(),
         nowUtcMillis: Long = System.currentTimeMillis(),
         zoneId: ZoneId = ZoneId.systemDefault(),
         id: String = UUID.randomUUID().toString(),
@@ -148,6 +149,7 @@ object SessionMetadata {
             longestInternalSilenceMillis = longestInternalSilenceMillis.coerceAtLeast(0),
             conversationEndSilenceMillis = conversationEndSilenceMillis.coerceAtLeast(0),
             externalDevice = externalDevice,
+            transcriptSegments = transcriptSegments,
         )
     }
 

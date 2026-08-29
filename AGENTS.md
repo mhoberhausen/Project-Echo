@@ -27,6 +27,13 @@ placeholder behavior that is not implemented.
   accessibility reviews, theming, and design QA. For implementation tasks, combine it with
   `$mobile-developer` and `$android-cli` so the behavior and rendered result are both
   verified on the target device when available.
+- Use `$persona-walkthrough-specialist` for persona-led cognitive walkthroughs of app or web
+  journeys, multi-persona comparisons, and experience hypotheses. Keep the persona's raw
+  reaction separate from framework analysis and treat findings as qualitative hypotheses,
+  not user research or statistical evidence.
+- Use `$ui-finish-gate-reviewer` for evidence-led pre-ship UI reviews that need an explicit
+  PASS or HOLD decision. Ground findings in the product job, implemented states, target
+  devices, and concrete verification conditions rather than aesthetic preference.
 
 ## UI Expectations
 

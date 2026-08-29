@@ -48,7 +48,10 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 
 ### Remaining
 
-- [ ] Add live or near-live partial transcript updates; the current MVP transcribes after Stop
+- [ ] Add live partial transcript display. Listen Now and Keep an Ear Out already transcribe
+  quiet-delimited chunks serially while recording continues, using the persisted 1,000 ms
+  default quiet boundary. They fall back to a full post-capture pass if VAD finds no chunks,
+  a chunk fails, or the bounded backlog fills. Full-audio diarization remains post-capture.
 - [ ] Run and document the complete workflow in Airplane Mode
 - [ ] Run and document a two-minute recording stability test
 - [ ] Exercise all specified model, transcription, and malformed-JSON error paths
@@ -124,7 +127,7 @@ processing explicitly staged.
 - [x] Use a standard back arrow on Listen Now, Keep an Ear Out, Settings, saved-session
   detail, and future child screens; toolbar Back and Android Back both return Home.
 - [x] Keep capture selection on Home instead of duplicating a **Listen** action in the drawer.
-- [x] Provide functional All / Pending / Processed session filters.
+- [x] Provide functional All / Unprocessed / Processed session filters.
 - [x] Show persisted sessions in a newest-first list with local date/time, duration, and status.
 - [x] Keep Preferences anchored at the bottom and clear of system navigation insets.
 - [x] Use an honest empty state when no saved sessions match the active filter.
@@ -149,7 +152,7 @@ Each successful Manual transcription creates an app-private persisted session wi
   session title, date, duration, and status are excluded
 - [x] Confirmed local deletion
 - [x] Edit a transcript before Gemma processing or from a processed saved session; saving
-  clears timestamp segments and stale inferred output, then returns the session to Pending
+  clears timestamp segments and stale inferred output, then returns the session to Transcript ready
 - [x] Rename saved sessions in-place without invalidating transcript or inferred content
 
 Sessions are stored in an app-private SQLite database behind a `SessionRepository`
@@ -165,7 +168,7 @@ Compose UI while avoiding an additional annotation-processor toolchain for the P
 - [x] Render each diarized speaker turn on its own line and allow generated speaker labels
   to be replaced with distinct user-provided names; renaming invalidates stale inference
 - [x] Save the transcript before offering local LLM processing.
-- [x] Allow a Pending or Failed saved transcript to start/retry processing from its
+- [x] Allow a Transcript ready or Failed saved transcript to start/retry processing from its
   session detail view; disable the action while Queued or Processing.
 - [x] Keep transcription history when Gemma processing fails.
 - [x] Persist explicit Queued, Processing, Processed, and Failed transitions.
@@ -208,7 +211,7 @@ milestone and are not part of the first UI-shell implementation.
 
 ### UX Assumptions To Validate
 
-- Pending means a captured transcript that has not completed Gemma processing; Processed
+- Transcript ready means a captured transcript that has not completed optional inference; Processed
   means a structured Gemma result exists.
 - New sessions receive an automatic date/time-based name until explicit renaming is added.
 - Conversation-ending silence defaults to 15 seconds and is tunable from 5–60 seconds;

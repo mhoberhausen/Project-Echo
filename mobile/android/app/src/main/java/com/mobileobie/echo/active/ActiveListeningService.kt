@@ -18,6 +18,7 @@ import com.mobileobie.echo.audio.StreamingPcmSource
 import com.mobileobie.echo.audio.PcmSourceEndReason
 import com.mobileobie.echo.audio.PcmSourceEvent
 import com.mobileobie.echo.audio.AudioRouteChangedException
+import com.mobileobie.echo.audio.SilenceChunkAccumulator
 import com.mobileobie.echo.model.SessionMetadata
 import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.model.TranscriptionModel
@@ -27,6 +28,9 @@ import com.mobileobie.echo.external.ReconnectBackoff
 import com.mobileobie.echo.external.externalSessionMetadata
 import com.mobileobie.echo.external.transport.TcpExternalPcmSource
 import com.mobileobie.echo.vad.HeuristicVoiceActivityDetector
+import com.mobileobie.echo.vad.VoiceActivity
+import com.mobileobie.echo.transcription.IncrementalTranscriptionWorker
+import com.mobileobie.echo.transcription.TimestampedTranscript
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +69,9 @@ class ActiveListeningService : Service() {
     private var captureJob: Job? = null
     @Volatile private var captureStopRequested = false
     private var writer: PcmConversationWriter? = null
+    private var conversationChunker: SilenceChunkAccumulator? = null
+    private var conversationTranscription: IncrementalTranscriptionWorker? = null
+    private var conversationTranscriptionModel: TranscriptionModel? = null
     private var captureStartedAtUtcMillis: Long? = null
     private var vadFramesSinceLog = 0
     private var vadSpeechFramesSinceLog = 0
@@ -268,8 +275,17 @@ class ActiveListeningService : Service() {
         preRoll.clear()
         if (completed != null) {
             val externalMetadata = currentExternalMetadata()
-            scope.launch { persistAndQueue(completed, update, externalMetadata) }
-        }
+            val incremental = takeIncrementalTranscription()
+            container.scope.launch {
+                persistAndQueue(
+                    completed,
+                    update,
+                    externalMetadata,
+                    finishIncrementalTranscription(incremental),
+                    incremental?.model,
+                )
+            }
+        } else cancelIncrementalTranscription()
     }
 
     private fun onAudioFrame(frame: ShortArray) {
@@ -281,7 +297,10 @@ class ActiveListeningService : Service() {
         val activity = vad.process(frame)
         logVadDiagnostics(activity)
         val update = detector.process(activity, StreamingAudioCapture.FRAME_DURATION_MS)
-        if (hadWriter) writer?.write(frame)
+        if (hadWriter) {
+            writer?.write(frame)
+            conversationChunker?.append(frame, activity)?.let { conversationTranscription?.offer(it) }
+        }
 
         if (update.stateChanged) {
             Log.d(
@@ -295,7 +314,9 @@ class ActiveListeningService : Service() {
         when (update.directive) {
             ConversationDirective.START_CAPTURE -> {
                 runCatching {
-                    writer = PcmConversationWriter.create(filesDir).also { it.write(preRoll.snapshot()) }
+                    val initialAudio = preRoll.snapshot()
+                    writer = PcmConversationWriter.create(filesDir).also { it.write(initialAudio) }
+                    startIncrementalTranscription(initialAudio)
                     preRoll.clear()
                     captureStartedAtUtcMillis = System.currentTimeMillis()
                     setState(ActiveListeningState.LISTENING)
@@ -319,14 +340,25 @@ class ActiveListeningService : Service() {
         setState(ActiveListeningState.WAITING)
         if (completed != null) {
             val externalMetadata = currentExternalMetadata()
-            scope.launch { persistAndQueue(completed, update, externalMetadata) }
-        }
+            val incremental = takeIncrementalTranscription()
+            container.scope.launch {
+                persistAndQueue(
+                    completed,
+                    update,
+                    externalMetadata,
+                    finishIncrementalTranscription(incremental),
+                    incremental?.model,
+                )
+            }
+        } else cancelIncrementalTranscription()
     }
 
     private suspend fun persistAndQueue(
         audio: CompletedPcm,
         timingUpdate: ConversationUpdate,
         externalMetadata: ExternalDeviceSessionMetadata?,
+        precomputedTranscript: TimestampedTranscript? = null,
+        transcriptionModel: TranscriptionModel? = null,
     ) = persistAndQueue(
         audio = audio,
         speechDurationMillis = timingUpdate.cumulativeSpeechDurationMs,
@@ -334,6 +366,8 @@ class ActiveListeningService : Service() {
         longestInternalSilenceMillis = timingUpdate.longestInternalSilenceMs,
         conversationEndSilenceMillis = timing.conversationEndSilenceMs,
         externalMetadata = externalMetadata,
+        precomputedTranscript = precomputedTranscript,
+        transcriptionModel = transcriptionModel,
     )
 
     private suspend fun persistAndQueue(
@@ -343,11 +377,14 @@ class ActiveListeningService : Service() {
         longestInternalSilenceMillis: Long,
         conversationEndSilenceMillis: Long,
         externalMetadata: ExternalDeviceSessionMetadata?,
+        precomputedTranscript: TimestampedTranscript? = null,
+        transcriptionModel: TranscriptionModel? = null,
     ) {
         runCatching {
             val session = SessionMetadata.createTranscribing(
                 durationMillis = audio.durationMillis,
-                transcriptionModel = container.activeListeningSettings.transcriptionModel,
+                transcriptionModel = transcriptionModel
+                    ?: container.activeListeningSettings.transcriptionModel,
                 source = audioCapture.descriptor.sessionSource,
                 audioPath = audio.file.absolutePath,
                 speechDurationMillis = speechDurationMillis,
@@ -355,6 +392,7 @@ class ActiveListeningService : Service() {
                 longestInternalSilenceMillis = longestInternalSilenceMillis,
                 conversationEndSilenceMillis = conversationEndSilenceMillis,
                 externalDevice = externalMetadata,
+                transcriptSegments = precomputedTranscript?.segments.orEmpty(),
             )
             container.sessionRepository.create(session)
             container.transcriptionQueue.enqueue(session)
@@ -376,7 +414,16 @@ class ActiveListeningService : Service() {
         writer = null
         captureStartedAtUtcMillis = null
         if (update.state == ConversationState.FINALIZING) detector.completeFinalization()
-        if (completed != null) persistAndQueue(completed, update, currentExternalMetadata())
+        if (completed != null) {
+            val incremental = takeIncrementalTranscription()
+            persistAndQueue(
+                completed,
+                update,
+                currentExternalMetadata(),
+                finishIncrementalTranscription(incremental),
+                incremental?.model,
+            )
+        } else cancelIncrementalTranscription()
         setState(ActiveListeningState.PAUSED)
     }
 
@@ -391,7 +438,16 @@ class ActiveListeningService : Service() {
         writer = null
         captureStartedAtUtcMillis = null
         if (update.state == ConversationState.FINALIZING) detector.completeFinalization()
-        if (completed != null) persistAndQueue(completed, update, currentExternalMetadata())
+        if (completed != null) {
+            val incremental = takeIncrementalTranscription()
+            persistAndQueue(
+                completed,
+                update,
+                currentExternalMetadata(),
+                finishIncrementalTranscription(incremental),
+                incremental?.model,
+            )
+        } else cancelIncrementalTranscription()
         ActiveListeningRuntime.update(ActiveListeningState.OFF)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -425,6 +481,55 @@ class ActiveListeningService : Service() {
         writer?.discard()
         writer = null
         captureStartedAtUtcMillis = null
+        cancelIncrementalTranscription()
+    }
+
+    private fun startIncrementalTranscription(initialAudio: ShortArray) {
+        cancelIncrementalTranscription()
+        val model = container.activeListeningSettings.transcriptionModel
+        val chunker = SilenceChunkAccumulator(
+            sampleRateHz = StreamingAudioCapture.SAMPLE_RATE_HZ,
+            quietBoundaryMs = timing.quietBoundaryMs,
+        )
+        val worker = IncrementalTranscriptionWorker(
+            container.scope,
+            container.transcriber,
+            model,
+            onDiagnostic = { Log.i(TAG, it) },
+        )
+        conversationChunker = chunker
+        conversationTranscription = worker
+        conversationTranscriptionModel = model
+        chunker.append(initialAudio, VoiceActivity.SPEECH)?.let(worker::offer)
+    }
+
+    private fun takeIncrementalTranscription(): ActiveIncrementalTranscription? {
+        val chunker = conversationChunker
+        val worker = conversationTranscription
+        val model = conversationTranscriptionModel
+        conversationChunker = null
+        conversationTranscription = null
+        conversationTranscriptionModel = null
+        if (chunker == null || worker == null || model == null) {
+            worker?.cancel()
+            return null
+        }
+        return ActiveIncrementalTranscription(chunker, worker, model)
+    }
+
+    private suspend fun finishIncrementalTranscription(
+        incremental: ActiveIncrementalTranscription?,
+    ): TimestampedTranscript? {
+        if (incremental == null) return null
+        incremental.chunker.finish()?.let(incremental.worker::offer)
+        return incremental.worker.finish()
+    }
+
+    private fun cancelIncrementalTranscription() {
+        conversationTranscription?.cancel()
+        conversationChunker = null
+        conversationTranscription = null
+        conversationTranscriptionModel = null
     }
 
     private fun setState(state: ActiveListeningState) {
@@ -500,6 +605,7 @@ class ActiveListeningService : Service() {
             TAG,
             "Capture configured: start=${timing.speechStartThresholdMs}ms " +
                 "minimumSpeech=${timing.minimumTranscriptSpeechMs}ms " +
+                "quietBoundary=${timing.quietBoundaryMs}ms " +
                 "endSilence=${timing.conversationEndSilenceMs}ms " +
                 "preRoll=${timing.preRollBufferMs}ms",
         )
@@ -555,6 +661,12 @@ class ActiveListeningService : Service() {
         private const val MAX_RECONNECT_ATTEMPTS = 8
     }
 }
+
+private data class ActiveIncrementalTranscription(
+    val chunker: SilenceChunkAccumulator,
+    val worker: IncrementalTranscriptionWorker,
+    val model: TranscriptionModel,
+)
 
 private data class CompletedPcm(val file: File, val durationMillis: Long)
 

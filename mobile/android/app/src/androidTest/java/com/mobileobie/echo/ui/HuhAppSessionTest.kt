@@ -416,4 +416,49 @@ class HuhAppSessionTest {
         composeRule.onNodeWithText("Save").performClick()
         composeRule.runOnIdle { assertEquals("share-session" to "New name", renamed) }
     }
+
+    @Test
+    fun transcribedSessionUsesReadyLanguage() {
+        val session = SessionRecord(
+            id = "ready-session",
+            createdAtUtcMillis = 1_704_067_200_000,
+            updatedAtUtcMillis = 1_704_067_200_000,
+            durationMillis = 12_000,
+            title = "A deliberately long session title that keeps its full-width hierarchy",
+            status = SessionStatus.TRANSCRIBED,
+            transcript = "Transcript content.",
+            originalTranscript = "Transcript content.",
+            processText = null,
+            tags = emptyList(),
+            transcriptionModel = TranscriptionModel.ACCURATE,
+        )
+
+        composeRule.setContent {
+            HuhTheme {
+                HuhApp(
+                    recorderState = RecorderUiState(),
+                    sessions = listOf(session),
+                    darkTheme = false,
+                    silenceSeconds = 15f,
+                    onDarkThemeChanged = {},
+                    onSilenceSecondsChanged = {},
+                    onRecord = {},
+                    onStop = {},
+                    onClear = {},
+                    onModelSelected = {},
+                    onProcess = {},
+                    onCancelRecording = {},
+                    onDeleteSession = {},
+                    onProcessSession = {},
+                    onShareSession = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
+        composeRule.onNodeWithText("Transcript ready").assertIsDisplayed()
+        composeRule.onNodeWithText(session.title).performClick()
+        composeRule.onAllNodesWithText("Transcript ready", substring = true).assertCountEquals(2)
+        composeRule.onNodeWithText("Rename").assertIsDisplayed()
+    }
 }

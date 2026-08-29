@@ -44,6 +44,15 @@ class ActiveListeningSettings(context: Context) {
             }
         }
 
+    var quietBoundaryMs: Int
+        get() = preferences.getInt(
+            KEY_QUIET_BOUNDARY_MS,
+            ActiveListeningTimingConfig.DEFAULT_QUIET_BOUNDARY_MS.toInt(),
+        ).coerceIn(250, 3_000)
+        set(value) {
+            preferences.edit { putInt(KEY_QUIET_BOUNDARY_MS, value.coerceIn(250, 3_000)) }
+        }
+
     var preRollBufferMs: Int
         get() = preferences.getInt(
             KEY_PRE_ROLL_MS,
@@ -62,6 +71,7 @@ class ActiveListeningSettings(context: Context) {
     fun timingConfig() = ActiveListeningTimingConfig(
         speechStartThresholdMs = speechStartThresholdMs.toLong(),
         minimumTranscriptSpeechMs = minimumTranscriptSpeechMs.toLong(),
+        quietBoundaryMs = quietBoundaryMs.toLong(),
         conversationEndSilenceMs = conversationEndSilenceSeconds * 1_000L,
         preRollBufferMs = preRollBufferMs.toLong(),
     )
@@ -73,6 +83,7 @@ class ActiveListeningSettings(context: Context) {
             remove(KEY_END_SILENCE_SECONDS)
             remove(KEY_SPEECH_START_MS)
             remove(KEY_MINIMUM_TRANSCRIPT_SPEECH_MS)
+            remove(KEY_QUIET_BOUNDARY_MS)
             remove(KEY_PRE_ROLL_MS)
             remove(KEY_MINIMUM_TRANSCRIPT_WORDS)
             remove(LEGACY_MINIMUM_AUDIO_SECONDS)
@@ -84,6 +95,7 @@ class ActiveListeningSettings(context: Context) {
         const val KEY_MODEL = "transcription_model"
         const val KEY_SPEECH_START_MS = "speech_start_threshold_ms"
         const val KEY_MINIMUM_TRANSCRIPT_SPEECH_MS = "minimum_transcript_speech_ms"
+        const val KEY_QUIET_BOUNDARY_MS = "quiet_boundary_ms"
         const val KEY_PRE_ROLL_MS = "pre_roll_buffer_ms"
         const val KEY_MINIMUM_TRANSCRIPT_WORDS = "minimum_transcript_words"
         const val LEGACY_MINIMUM_AUDIO_SECONDS = "minimum_audio_duration_seconds"

@@ -25,7 +25,9 @@ class TranscriptionProcessor(
             val policy = cleanupPolicy()
             repository.updateStatus(session.id, SessionStatus.TRANSCRIBING)
             val audio = RecordedAudio(readPcm16(file), SAMPLE_RATE_HZ)
-            val timestamped = transcriber.transcribe(audio, session.transcriptionModel)
+            val timestamped = session.transcriptSegments.takeIf { it.isNotEmpty() }
+                ?.let(::TimestampedTranscript)
+                ?: transcriber.transcribe(audio, session.transcriptionModel)
             val diarized = diarizer.diarize(audio, timestamped)
             val original = diarized.text
             val cleaned = cleaner.clean(original)

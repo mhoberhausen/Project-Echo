@@ -35,6 +35,7 @@ class RecorderScreenTest {
         }
 
         composeRule.onNodeWithContentDescription("Start listening").assertIsDisplayed()
+        composeRule.onNodeWithText("Start listening").assertIsDisplayed()
         composeRule.onNodeWithText("Ready when you are.").assertIsDisplayed()
         composeRule.onNodeWithText("Processed on this device").assertIsDisplayed()
     }

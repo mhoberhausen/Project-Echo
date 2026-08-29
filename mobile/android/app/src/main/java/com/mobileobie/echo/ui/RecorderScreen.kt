@@ -67,7 +67,13 @@ fun RecorderScreen(
                     ) {
                         HuhMark(Modifier.size(92.dp), MaterialTheme.colors.onPrimary)
                     }
-                    Spacer(Modifier.height(28.dp))
+                    Text(
+                        "Start listening",
+                        modifier = Modifier.padding(top = 12.dp),
+                        color = MaterialTheme.colors.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(20.dp))
                     ModelSelector(state.selectedModel, onModelSelected)
                 }
                 RecordingPhase.RECORDING -> {
