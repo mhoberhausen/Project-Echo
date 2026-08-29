@@ -27,9 +27,10 @@ import com.mobileobie.echo.active.ActiveListeningState
 import com.mobileobie.echo.active.ActiveListeningSource
 import com.mobileobie.echo.external.ExternalDeviceEndpoint
 import com.mobileobie.echo.interpretation.GemmaTranscriptInterpreter
+import com.mobileobie.echo.interpretation.OpenAiLanTranscriptInterpreter
 import com.mobileobie.echo.interpretation.SelectedTranscriptInterpreter
-import com.mobileobie.echo.model.shareText
 import com.mobileobie.echo.settings.AudioInputChoice
+import com.mobileobie.echo.settings.AiProviderKind
 import com.mobileobie.echo.ui.HuhTheme
 import com.mobileobie.echo.ui.HuhApp
 import com.mobileobie.echo.ui.RecorderViewModel
@@ -40,6 +41,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as HuhApplication).container
+        val onDeviceInterpreter = GemmaTranscriptInterpreter(applicationContext)
+        val lanInterpreters = mutableMapOf<String, OpenAiLanTranscriptInterpreter>()
         val factory = RecorderViewModelFactory(
             recorder = AndroidAudioRecorder(),
             transcriber = container.transcriber,
@@ -47,7 +50,16 @@ class MainActivity : ComponentActivity() {
             cleaner = container.cleaner,
             interpreter = SelectedTranscriptInterpreter(
                 providers = { container.selectionSettings.aiProviders },
-                onDeviceInterpreter = GemmaTranscriptInterpreter(applicationContext),
+                interpreterFor = { provider ->
+                    when {
+                        provider.id == com.mobileobie.echo.settings.AiProviderConfig.ON_DEVICE_GEMMA.id ->
+                            onDeviceInterpreter
+                        provider.kind == AiProviderKind.LAN -> lanInterpreters.getOrPut(provider.id) {
+                            OpenAiLanTranscriptInterpreter(provider.endpoint)
+                        }
+                        else -> null
+                    }
+                },
             ),
             sessionRepository = container.sessionRepository,
         )
@@ -80,6 +92,7 @@ class MainActivity : ComponentActivity() {
             var pendingExternalEndpoint by remember { mutableStateOf<ExternalDeviceEndpoint?>(null) }
             var selectedAudioInput by remember { mutableStateOf(container.selectionSettings.audioInput) }
             var aiProviders by remember { mutableStateOf(container.selectionSettings.aiProviders) }
+            var pendingAiAction by remember { mutableStateOf<(() -> Unit)?>(null) }
             SideEffect {
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     isAppearanceLightStatusBars = !darkTheme
@@ -138,6 +151,25 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            val aiNetworkPermissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                val action = pendingAiAction
+                pendingAiAction = null
+                if (granted) action?.invoke() else recorderViewModel.aiNetworkPermissionDenied()
+            }
+            val runAiAction = { action: () -> Unit ->
+                val needsLan = aiProviders.any { it.enabled && it.available && it.kind == AiProviderKind.LAN }
+                val localNetworkGranted = Build.VERSION.SDK_INT < 37 || ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.ACCESS_LOCAL_NETWORK,
+                ) == PackageManager.PERMISSION_GRANTED
+                if (!needsLan || localNetworkGranted) action()
+                else {
+                    pendingAiAction = action
+                    aiNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                }
+            }
             val refreshActiveListeningConfiguration = {
                 if (activeListening.state != ActiveListeningState.OFF) {
                     ActiveListeningController.refreshConfiguration(this)
@@ -172,19 +204,21 @@ class MainActivity : ComponentActivity() {
                         recorderViewModel.selectModel(it)
                         container.activeListeningSettings.transcriptionModel = it
                     },
-                    onProcess = recorderViewModel::processTranscript,
+                    onProcess = { runAiAction(recorderViewModel::processTranscript) },
                     onCancelRecording = recorderViewModel::cancelRecording,
                     onDeleteSession = recorderViewModel::deleteSession,
-                    onProcessSession = recorderViewModel::processSavedSession,
+                    onProcessSession = { sessionId ->
+                        runAiAction { recorderViewModel.processSavedSession(sessionId) }
+                    },
                     onEditTranscript = recorderViewModel::updateTranscript,
                     onRenameSpeakers = recorderViewModel::renameSpeakers,
-                    onShareSession = { session ->
+                    onRenameSession = recorderViewModel::renameSession,
+                    onShareSession = { content ->
                         val sendIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, session.title)
-                            putExtra(Intent.EXTRA_TEXT, session.shareText())
+                            putExtra(Intent.EXTRA_TEXT, content)
                         }
-                        startActivity(Intent.createChooser(sendIntent, "Share session"))
+                        startActivity(Intent.createChooser(sendIntent, "Share from Huh?"))
                     },
                     activeListening = activeListening,
                     queuedTranscriptions = queuedTranscriptions,

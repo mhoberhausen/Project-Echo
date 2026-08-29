@@ -175,6 +175,7 @@ private class FakeRepository : SessionRepository {
         }
     }
     override suspend fun saveProcessed(id: String, message: ProcessedMessage) = Unit
+    override suspend fun updateTitle(id: String, title: String) = Unit
     override suspend fun updateTranscript(id: String, transcript: String) = Unit
     override suspend fun renameSpeakers(id: String, names: Map<String, String>) = Unit
     override suspend fun delete(id: String) {

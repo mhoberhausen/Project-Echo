@@ -59,6 +59,16 @@ class SQLiteSessionRepository(
         })
     }
 
+    override suspend fun updateTitle(id: String, title: String) = withContext(Dispatchers.IO) {
+        val normalized = title.trim()
+        require(normalized.isNotEmpty()) { "A session name cannot be empty." }
+        require(normalized.length <= 120) { "A session name cannot exceed 120 characters." }
+        update(id, ContentValues().apply {
+            put(COLUMN_TITLE, normalized)
+            put(COLUMN_UPDATED_AT, System.currentTimeMillis())
+        })
+    }
+
     override suspend fun updateTranscript(id: String, transcript: String) = withContext(Dispatchers.IO) {
         val normalized = transcript.trim()
         require(normalized.isNotEmpty()) { "A transcript cannot be empty." }

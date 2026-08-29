@@ -177,13 +177,3 @@ object ProcessedMessageText {
         }
     }
 }
-
-fun SessionRecord.shareText(): String = buildString {
-    append(title)
-    append("\n").append(SessionMetadata.displayDate(createdAtUtcMillis))
-    append(" · ").append(SessionMetadata.displayDuration(durationMillis))
-    append(" · ").append(status.displayName)
-    append("\n\nWhat Was Said\n").append(transcript)
-    processText?.takeIf { it.isNotBlank() }?.let { append("\n\nWhat I Got From It\n").append(it) }
-    if (tags.isNotEmpty()) append("\n\nTags: ").append(tags.joinToString(", "))
-}

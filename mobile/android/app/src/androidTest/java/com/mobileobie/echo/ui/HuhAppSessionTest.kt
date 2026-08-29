@@ -284,6 +284,7 @@ class HuhAppSessionTest {
 
         composeRule.onNodeWithContentDescription("Open navigation").performClick()
         composeRule.onNodeWithText("Processed session").performClick()
+        composeRule.onNodeWithText("Transcript").performClick()
         composeRule.onNodeWithText("Edit").performClick()
         composeRule.onNodeWithText(
             "Saving changes removes the current inference. You can run Make sense of this again."
@@ -342,6 +343,7 @@ class HuhAppSessionTest {
 
         composeRule.onNodeWithContentDescription("Open navigation").performClick()
         composeRule.onNodeWithText("Two speakers").performClick()
+        composeRule.onNodeWithText("Transcript").performClick()
         composeRule.onNodeWithText("Name speakers").performClick()
         composeRule.onAllNodes(hasSetTextAction())[0].performTextReplacement("Alice")
         composeRule.onAllNodes(hasSetTextAction())[1].performTextReplacement("Bob")
@@ -353,5 +355,65 @@ class HuhAppSessionTest {
                 renamed,
             )
         }
+    }
+
+    @Test
+    fun sessionContentExpandsRenamesAndSharesOnlySelectedContent() {
+        val session = SessionRecord(
+            id = "share-session",
+            createdAtUtcMillis = 1_704_067_200_000,
+            updatedAtUtcMillis = 1_704_067_200_000,
+            durationMillis = 12_000,
+            title = "Old name",
+            status = SessionStatus.PROCESSED,
+            transcript = "Transcript content only.",
+            originalTranscript = "Transcript content only.",
+            processText = "Inferred content only.",
+            tags = listOf("Example"),
+            transcriptionModel = TranscriptionModel.FAST,
+        )
+        var renamed: Pair<String, String>? = null
+        var shared: String? = null
+
+        composeRule.setContent {
+            HuhTheme {
+                HuhApp(
+                    recorderState = RecorderUiState(),
+                    sessions = listOf(session),
+                    darkTheme = false,
+                    silenceSeconds = 15f,
+                    onDarkThemeChanged = {},
+                    onSilenceSecondsChanged = {},
+                    onRecord = {},
+                    onStop = {},
+                    onClear = {},
+                    onModelSelected = {},
+                    onProcess = {},
+                    onCancelRecording = {},
+                    onDeleteSession = {},
+                    onProcessSession = {},
+                    onRenameSession = { id, title -> renamed = id to title },
+                    onShareSession = { shared = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
+        composeRule.onNodeWithText("Old name").performClick()
+        composeRule.onAllNodesWithText("Transcript content only.").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Inferred content only.").assertCountEquals(0)
+        composeRule.onNodeWithText("Transcript").performClick()
+        composeRule.onNodeWithText("Transcript content only.").assertIsDisplayed()
+        composeRule.onNodeWithText("Inferred summary").performClick()
+        composeRule.onNodeWithText("Inferred content only.", substring = true).assertIsDisplayed()
+
+        composeRule.onNodeWithText("Share").performClick()
+        composeRule.onNodeWithText("Share inferred summary").performClick()
+        composeRule.runOnIdle { assertEquals("Inferred content only.", shared) }
+
+        composeRule.onNodeWithText("Rename").performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("New name")
+        composeRule.onNodeWithText("Save").performClick()
+        composeRule.runOnIdle { assertEquals("share-session" to "New name", renamed) }
     }
 }

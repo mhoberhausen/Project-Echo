@@ -109,8 +109,8 @@ internal fun AiSelectionScreen(
             modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
         ) { Text("Add AI method") }
         Text(
-            "Only bundled Gemma is active today. LAN and third-party entries are saved as configuration " +
-                "but remain disabled at inference time until their connectors and credential storage are implemented.",
+            "Bundled Gemma and OpenAI-compatible LAN endpoints can process transcripts. LAN methods use " +
+                "the first suitable instruction model reported by the server. Third-party methods remain configuration-only.",
             modifier = Modifier.padding(top = 12.dp),
             color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
         )
@@ -155,6 +155,8 @@ private fun AiProviderCard(
                 }
                 if (!provider.available) {
                     Text("Connector not installed", color = MaterialTheme.colors.secondary)
+                } else if (provider.kind == AiProviderKind.LAN) {
+                    Text("OpenAI-compatible connector", color = MaterialTheme.colors.primary)
                 }
             }
             Switch(checked = provider.enabled, onCheckedChange = onEnabled)

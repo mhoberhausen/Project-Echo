@@ -65,6 +65,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.LocalContentColor
 import com.mobileobie.echo.model.RecorderUiState
 import com.mobileobie.echo.model.SessionMetadata
 import com.mobileobie.echo.model.SessionRecord
@@ -99,7 +100,8 @@ fun HuhApp(
     onProcessSession: (String) -> Unit,
     onEditTranscript: (String, String) -> Unit = { _, _ -> },
     onRenameSpeakers: (String, Map<String, String>) -> Unit = { _, _ -> },
-    onShareSession: (SessionRecord) -> Unit,
+    onRenameSession: (String, String) -> Unit = { _, _ -> },
+    onShareSession: (String) -> Unit,
     activeListening: ActiveListeningSnapshot = ActiveListeningSnapshot(),
     queuedTranscriptions: Int = 0,
     openActiveListening: Boolean = false,
@@ -250,7 +252,8 @@ fun HuhApp(
                             onProcess = { onProcessSession(session.id) },
                             onEditTranscript = { transcript -> onEditTranscript(session.id, transcript) },
                             onRenameSpeakers = { names -> onRenameSpeakers(session.id, names) },
-                            onShare = { onShareSession(session) },
+                            onRenameSession = { title -> onRenameSession(session.id, title) },
+                            onShare = onShareSession,
                             onDelete = {
                                 destination = AppDestination.HOME
                                 selectedSessionId = null
@@ -328,7 +331,7 @@ private val AppDestination.title: String
 
 @Composable
 private fun DeviceGlyph(modifier: Modifier = Modifier) {
-    val color = MaterialTheme.colors.onPrimary
+    val color = LocalContentColor.current
     Canvas(modifier) {
         val stroke = size.minDimension * 0.09f
         drawLine(color, Offset(size.width * 0.28f, size.height * 0.15f), Offset(size.width * 0.28f, size.height * 0.85f), stroke)
@@ -539,13 +542,18 @@ private fun SessionDetailScreen(
     onProcess: () -> Unit,
     onEditTranscript: (String) -> Unit,
     onRenameSpeakers: (Map<String, String>) -> Unit,
-    onShare: () -> Unit,
+    onRenameSession: (String) -> Unit,
+    onShare: (String) -> Unit,
     onDelete: () -> Unit,
     onRetryTranscription: () -> Unit,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     var editTranscript by remember(session.id) { mutableStateOf(false) }
     var nameSpeakers by remember(session.id) { mutableStateOf(false) }
+    var renameSession by remember(session.id) { mutableStateOf(false) }
+    var shareContent by remember(session.id) { mutableStateOf(false) }
+    var transcriptExpanded by remember(session.id) { mutableStateOf(false) }
+    var inferenceExpanded by remember(session.id) { mutableStateOf(false) }
     val speakerIds = session.transcriptSegments.mapNotNull { it.speakerId }.distinct()
     val canEdit = session.transcript.isNotBlank() && session.status !in setOf(
         SessionStatus.TRANSCRIBING,
@@ -555,7 +563,13 @@ private fun SessionDetailScreen(
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
     ) {
-        Text(session.title, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(session.title, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = { renameSession = true }) { Text("Rename") }
+        }
         Text(
             SessionMetadata.displayDate(session.createdAtUtcMillis),
             modifier = Modifier.padding(top = 8.dp),
@@ -577,19 +591,28 @@ private fun SessionDetailScreen(
             color = MaterialTheme.colors.primary,
         )
         if (session.transcript.isNotBlank()) {
-            SessionContentCard(
-                title = "What Was Said",
+            ExpandableSessionContentCard(
+                title = "Transcript",
                 text = session.transcript,
+                expanded = transcriptExpanded,
+                onExpandedChange = { transcriptExpanded = it },
                 actionLabel = if (canEdit) "Edit" else null,
                 onAction = if (canEdit) ({ editTranscript = true }) else null,
                 secondaryActionLabel = if (canEdit && speakerIds.isNotEmpty()) "Name speakers" else null,
                 onSecondaryAction = if (canEdit && speakerIds.isNotEmpty()) ({ nameSpeakers = true }) else null,
             )
         }
-        session.processText?.takeIf(String::isNotBlank)?.let { SessionContentCard("What I Got From It", it) }
-        if (session.tags.isNotEmpty()) {
-            Text("Tags", modifier = Modifier.padding(top = 20.dp), fontWeight = FontWeight.Bold)
-            Text(session.tags.joinToString(" · "), modifier = Modifier.padding(top = 6.dp))
+        session.processText?.takeIf(String::isNotBlank)?.let { inferred ->
+            val inferredContent = buildString {
+                append(inferred)
+                if (session.tags.isNotEmpty()) append("\n\nTags: ").append(session.tags.joinToString(" · "))
+            }
+            ExpandableSessionContentCard(
+                title = "Inferred summary",
+                text = inferredContent,
+                expanded = inferenceExpanded,
+                onExpandedChange = { inferenceExpanded = it },
+            )
         }
         if (session.status == SessionStatus.TRANSCRIPTION_FAILED) {
             Button(
@@ -610,7 +633,7 @@ private fun SessionDetailScreen(
             modifier = Modifier.fillMaxWidth().padding(top = if (session.status == SessionStatus.PROCESSED) 24.dp else 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Button(onClick = onShare, modifier = Modifier.weight(1f)) { Text("Share") }
+            Button(onClick = { shareContent = true }, modifier = Modifier.weight(1f)) { Text("Share") }
             OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.weight(1f)) { Text("Delete") }
         }
     }
@@ -626,6 +649,41 @@ private fun SessionDetailScreen(
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
+    }
+    if (renameSession) {
+        SessionRenameDialog(
+            currentTitle = session.title,
+            onDismiss = { renameSession = false },
+            onSave = { title ->
+                renameSession = false
+                onRenameSession(title)
+            },
+        )
+    }
+    if (shareContent) {
+        AlertDialog(
+            onDismissRequest = { shareContent = false },
+            title = { Text("What would you like to share?") },
+            text = { Text("Only the selected content will be shared. Session details are not included.") },
+            buttons = {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Button(
+                        onClick = { shareContent = false; onShare(session.transcript) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Share transcript") }
+                    session.processText?.takeIf(String::isNotBlank)?.let { inferred ->
+                        OutlinedButton(
+                            onClick = { shareContent = false; onShare(inferred) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        ) { Text("Share inferred summary") }
+                    }
+                    TextButton(
+                        onClick = { shareContent = false },
+                        modifier = Modifier.align(Alignment.End).padding(top = 4.dp),
+                    ) { Text("Cancel") }
+                }
+            },
         )
     }
     if (editTranscript) {
@@ -653,34 +711,77 @@ private fun SessionDetailScreen(
 }
 
 @Composable
-private fun SessionContentCard(
+private fun ExpandableSessionContentCard(
     title: String,
     text: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
     secondaryActionLabel: String? = null,
     onSecondaryAction: (() -> Unit)? = null,
 ) {
     Card(modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
-        Column(Modifier.padding(18.dp)) {
+        Column {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) }.padding(18.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(title, fontWeight = FontWeight.Bold)
-                Row {
-                    if (secondaryActionLabel != null && onSecondaryAction != null) {
-                        TextButton(onClick = onSecondaryAction) { Text(secondaryActionLabel) }
-                    }
-                    if (actionLabel != null && onAction != null) {
-                        TextButton(onClick = onAction) { Text(actionLabel) }
+                Text(title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(
+                    if (expanded) "▲" else "▼",
+                    modifier = Modifier.semantics {
+                        contentDescription = if (expanded) "Collapse $title" else "Expand $title"
+                    },
+                )
+            }
+            if (expanded) {
+                Divider()
+                Text(text, modifier = Modifier.padding(start = 18.dp, top = 16.dp, end = 18.dp))
+                if ((secondaryActionLabel != null && onSecondaryAction != null) ||
+                    (actionLabel != null && onAction != null)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        if (secondaryActionLabel != null && onSecondaryAction != null) {
+                            TextButton(onClick = onSecondaryAction) { Text(secondaryActionLabel) }
+                        }
+                        if (actionLabel != null && onAction != null) {
+                            TextButton(onClick = onAction) { Text(actionLabel) }
+                        }
                     }
                 }
             }
-            Text(text, modifier = Modifier.padding(top = 8.dp))
         }
     }
+}
+
+@Composable
+private fun SessionRenameDialog(
+    currentTitle: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var title by remember(currentTitle) { mutableStateOf(currentTitle) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename session") },
+        text = {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it.take(120) },
+                label = { Text("Session name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(title.trim()) }, enabled = title.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

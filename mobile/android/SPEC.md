@@ -33,14 +33,18 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 - [x] Structured response parsing for summary, intent, key points, and action items
 - [x] Resilient parsing when Gemma adds metadata or omits an empty `action_items` array
 - [x] Processed-result UI, including transcript disclosure and empty action-item handling
-- [x] No `INTERNET` permission, cloud API, account, or external transmission path
+- [x] No analytics, account, cloud transcription, or cloud LLM path; `INTERNET` and Android
+  17 local-network access are limited to user-configured private-LAN device/AI endpoints
 - [x] Persist an audio-input picker for the phone or configured Huh? Puck, with an honest
   Bluetooth setup placeholder until Bluetooth capture is implemented
-- [x] Provide a nested AI Selection settings page with persistent enablement, drag ordering,
-  and configuration-only LAN/third-party entries; only bundled Gemma executes inference
-  until explicit connectors and credential storage are implemented
+- [x] Provide a nested AI Selection settings page with persistent enablement and drag ordering;
+  bundled Gemma and unauthenticated OpenAI-compatible private-LAN endpoints execute in priority
+  order with fallback, while third-party/cloud entries remain configuration-only
 - [x] Debug APK builds, installs, and launches on the target Pixel 8 Pro
-- [x] JVM parser regression tests and Pixel tests for Gemma inference and result rendering
+- [x] JVM parser/router/LAN fixture regression tests plus Pixel tests for bundled Gemma, real
+  private-LAN inference, fallback behavior, and result rendering
+- [x] Run instrumentation against an isolated `.testbed` application ID so test install,
+  cleanup, databases, and preferences cannot alter normal app sessions or AI endpoints
 
 ### Remaining
 
@@ -139,12 +143,14 @@ Each successful Manual transcription creates an app-private persisted session wi
   diarization pipeline
 - [x] Processing status: Transcribed, Queued, Processing, Processed, or Failed
 - [x] Persisted processed text and local-LLM topic tags
-- [x] Full-content detail view from the navigation drawer
-- [x] Share through the Android Sharesheet using `ACTION_SEND` and `text/plain`
+- [x] Session detail view with independently expandable, collapsed-by-default Transcript and
+  Inferred summary sections
+- [x] Share either transcript-only or inferred-summary-only through the Android Sharesheet;
+  session title, date, duration, and status are excluded
 - [x] Confirmed local deletion
 - [x] Edit a transcript before Gemma processing or from a processed saved session; saving
   clears timestamp segments and stale inferred output, then returns the session to Pending
-- [ ] Add UI for renaming saved sessions; repository support already exists
+- [x] Rename saved sessions in-place without invalidating transcript or inferred content
 
 Sessions are stored in an app-private SQLite database behind a `SessionRepository`
 interface. This keeps structured history local, updateable, and independent from the
@@ -922,8 +928,7 @@ dark Settings, and dark Keep an Ear Out placeholder on 2026-08-22.
 - Keep inference on-device and omit the Android `INTERNET` permission.
 - Treat omitted `action_items` as an empty list while continuing to require summary,
   intent, and key points.
-- Defer model downloads, search, reminders, rename/edit UI, and durable background queue
-  execution to later iterations.
+- Defer model downloads, search, and reminders to later iterations.
 - Store session history in app-private SQLite behind a repository interface; keep UTC as
   the storage representation and convert to the device timezone only for display.
 - Use explicit Android edge-to-edge handling and theme-aware system icon appearance rather
@@ -943,5 +948,4 @@ dark Settings, and dark Keep an Ear Out placeholder on 2026-08-22.
 - Run a two-minute recording stability test on the Pixel 8 Pro.
 - Decide whether near-live partial transcription remains in Milestone 1 or moves to the first post-MVP iteration.
 - Tighten the Gemma prompt and complete error-path testing.
-- Add session rename and transcript-edit UI on top of the existing local persistence.
 - Persist appearance, transcription-model, and silence-duration preferences locally.

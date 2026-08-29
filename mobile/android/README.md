@@ -3,7 +3,8 @@
 Huh? is an offline-first Android conversation-memory app targeting a Pixel 8 Pro on Android
 17. It records or receives 16 kHz mono PCM, transcribes locally with `whisper.cpp`, optionally
 assigns speakers with sherpa-onnx, removes only high-confidence filler words, stores sessions
-in app-private SQLite, and optionally interprets a transcript with bundled Gemma 3 1B.
+in app-private SQLite, and optionally interprets a transcript with bundled Gemma 3 1B or a
+user-configured OpenAI-compatible server on the private LAN.
 
 ## Implemented experience
 
@@ -16,12 +17,13 @@ in app-private SQLite, and optionally interprets a transcript with bundled Gemma
 - **Transcripts:** original and cleaned text, Whisper segment timestamps, optional speaker
   labels, one line per speaker turn, editing, and custom speaker names.
 - **Sessions:** app-private history, status filtering, processing retry, sharing, and deletion.
-- **Interpretation:** on-device Gemma summary, intent, key points, action items, and tags.
+- **Interpretation:** prioritized on-device Gemma or private-LAN OpenAI-compatible inference,
+  with automatic instruction-model discovery and Gemma fallback.
 - **Configuration:** audio-device picker plus persistent AI-provider ordering and enablement.
 
-Bluetooth capture and LAN/third-party LLM execution are not implemented. Their UI entries
-are configuration/setup boundaries and say so. Only an enabled bundled Gemma provider is
-eligible for interpretation.
+Bluetooth capture and third-party/cloud LLM execution are not implemented. LAN inference
+supports unauthenticated OpenAI-compatible `/v1/models` and `/v1/chat/completions` endpoints
+that resolve only to private/local addresses.
 
 ## Architecture
 
@@ -35,7 +37,7 @@ phone AudioRecord               |
         v                       |
 WhisperTranscriber -> SpeakerDiarizer -> TranscriptCleaner
         |
-SelectedTranscriptInterpreter -> bundled Gemma
+SelectedTranscriptInterpreter -> private-LAN OpenAI API -> bundled Gemma fallback
 
 ActiveListeningService
   |- phone StreamingAudioCapture -> VAD / ConversationDetector
@@ -61,13 +63,13 @@ The app declares:
 - `RECORD_AUDIO` for phone capture.
 - foreground-service and notification permissions for visible active listening and local
   transcription work.
-- `ACCESS_LOCAL_NETWORK` on Android 17 and `INTERNET` for direct TCP communication with the
-  user-configured Puck.
+- `ACCESS_LOCAL_NETWORK` on Android 17 and `INTERNET` for direct communication with the
+  user-configured Puck or private-LAN AI endpoint.
 
-There is no analytics SDK, account system, cloud transcription, or implemented remote-LLM
-connector. `android:usesCleartextTraffic="false"` remains set; Puck communication uses the
-documented raw HUH1 socket protocol. The trusted-LAN Puck POC is unauthenticated and should
-not be used on an untrusted network.
+There is no analytics SDK, account system, cloud transcription, or cloud-LLM connector.
+Cleartext traffic is enabled for user-selected LAN endpoints, while application validation
+rejects LAN AI hosts that resolve outside private/local address ranges. The trusted-LAN Puck
+and LAN AI connectors are unauthenticated and should not be used on an untrusted network.
 
 ## Toolchain
 
@@ -82,13 +84,14 @@ Run Gradle from this directory:
 
 ```powershell
 $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
-.\gradlew.bat testDebugUnitTest lintDebug assembleDebug compileDebugAndroidTestKotlin
+.\gradlew.bat testInstrumentationUnitTest lintDebug assembleDebug assembleInstrumentationAndroidTest
 ```
 
-With an authorized device connected:
+With an authorized device connected, instrumentation targets the isolated
+`com.mobileobie.echo.testbed` build and cannot clear the normal app's sessions or settings:
 
 ```powershell
-.\gradlew.bat connectedDebugAndroidTest
+.\gradlew.bat connectedInstrumentationAndroidTest
 ```
 
 ## Model setup
@@ -119,9 +122,11 @@ fallback and transcripts remain timestamped without speaker IDs.
 
 - JVM tests cover VAD, conversation timing, rolling buffers, cleanup, timestamps, speaker
   alignment/naming, protocol framing, sequence gaps, reconnect timing, external transfer,
-  structured Gemma parsing, provider routing, session metadata, and transcription processing.
+  structured response parsing, real local HTTP fixtures, provider routing/fallback, session
+  metadata, and transcription processing.
 - Instrumentation tests cover SQLite persistence, notification behavior, Compose journeys,
-  the real bundled Gemma model, settings persistence, and native sherpa-onnx startup.
+  the real bundled Gemma model, an opt-in real LAN endpoint test, settings persistence, and
+  native sherpa-onnx startup.
 - Native Whisper is compiled as part of the debug build. Firmware/protocol fixtures live in
   `firmware/xiao` and are run separately with PlatformIO/Python.
 

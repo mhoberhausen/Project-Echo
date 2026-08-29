@@ -50,6 +50,38 @@ class GemmaResponseParserTest {
     }
 
     @Test
+    fun ignoresNullOptionalArrayEntries() {
+        val result = GemmaResponseParser.parse(
+            """{"summary":"A short conversation.","intent":"conversation","key_points":[null,"A book was mentioned"],"action_items":[null],"tags":[null,"books"]}"""
+        )
+
+        assertEquals(listOf("A book was mentioned"), result.keyPoints)
+        assertEquals(emptyList<com.mobileobie.echo.model.ActionItem>(), result.actionItems)
+        assertEquals(listOf("books"), result.tags)
+    }
+
+    @Test
+    fun normalizesSingleValuesForListFields() {
+        val result = GemmaResponseParser.parse(
+            """{"summary":"A test was spoken.","intent":"note","key_points":"Testing12345678910","action_items":{"text":"Repeat the test","due_date":null},"tags":"test"}"""
+        )
+
+        assertEquals(listOf("Testing12345678910"), result.keyPoints)
+        assertEquals("Repeat the test", result.actionItems.single().text)
+        assertEquals(listOf("test"), result.tags)
+    }
+
+    @Test
+    fun repairsModelResponseMissingClosingContainers() {
+        val result = GemmaResponseParser.parse(
+            """{"summary":"Testing","intent":"unknown","key_points":["Testing 123"],"action_items":[]"""
+        )
+
+        assertEquals("Testing", result.summary)
+        assertEquals(listOf("Testing 123"), result.keyPoints)
+    }
+
+    @Test
     fun parsesAndDeduplicatesTopicTags() {
         val result = GemmaResponseParser.parse(
             """{"summary":"Plan the trip.","intent":"idea","key_points":[],"action_items":[],"tags":["Travel","travel","Budget"]}"""

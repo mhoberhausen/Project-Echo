@@ -16,6 +16,9 @@ class SelectionSettingsTest {
 
     @Before
     fun setUp() {
+        check(context.packageName.endsWith(".testbed")) {
+            "Refusing to mutate AI provider preferences outside the isolated instrumentation app."
+        }
         context.getSharedPreferences("selection_settings", Context.MODE_PRIVATE).edit().clear().commit()
         settings = SelectionSettings(context)
     }
@@ -39,6 +42,7 @@ class SelectionSettingsTest {
             kind = AiProviderKind.LAN,
             endpoint = "http://192.168.1.20:11434",
             enabled = false,
+            available = true,
         )
         settings.audioInput = AudioInputChoice.XIAO
         settings.aiProviders = listOf(lan, AiProviderConfig.ON_DEVICE_GEMMA)

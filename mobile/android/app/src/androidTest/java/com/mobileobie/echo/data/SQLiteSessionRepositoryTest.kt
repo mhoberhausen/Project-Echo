@@ -72,6 +72,10 @@ class SQLiteSessionRepositoryTest {
         assertEquals(100, processed.transcriptSegments.single().startMillis)
         assertEquals("speaker-1", processed.transcriptSegments.single().speakerId)
 
+        repository.updateTitle(session.id, "Project kickoff")
+        assertEquals("Project kickoff", repository.sessions.value.single().title)
+        assertEquals(SessionStatus.PROCESSED, repository.sessions.value.single().status)
+
         repository.updateTranscript(session.id, "Edited transcript")
         val edited = repository.sessions.value.single()
         assertEquals(SessionStatus.TRANSCRIBED, edited.status)

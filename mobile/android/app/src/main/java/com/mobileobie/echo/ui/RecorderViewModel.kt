@@ -1,5 +1,6 @@
 package com.mobileobie.echo.ui
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobileobie.echo.audio.AudioRecorder
@@ -158,6 +159,13 @@ class RecorderViewModel(
         }
     }
 
+    fun renameSession(sessionId: String, title: String) {
+        viewModelScope.launch {
+            runCatching { sessionRepository.updateTitle(sessionId, title) }
+                .onFailure(::showError)
+        }
+    }
+
     fun renameSpeakers(sessionId: String, names: Map<String, String>) {
         viewModelScope.launch {
             runCatching { sessionRepository.renameSpeakers(sessionId, names) }
@@ -202,6 +210,7 @@ class RecorderViewModel(
                     }
                 }
                 .onFailure { error ->
+                    Log.e(LOG_TAG, "Saved transcript interpretation failed for session $sessionId", error)
                     runCatching { sessionRepository.updateStatus(sessionId, SessionStatus.FAILED) }
                     if (updateRecorderState) {
                         _uiState.update {
@@ -244,6 +253,10 @@ class RecorderViewModel(
         showError(IllegalStateException("Pause or turn off Keep an Ear Out before using Listen Now."))
     }
 
+    fun aiNetworkPermissionDenied() {
+        showError(IllegalStateException("Local network permission is required to use the selected LAN AI method."))
+    }
+
     private fun startTimer() {
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
@@ -267,5 +280,9 @@ class RecorderViewModel(
         processingJob?.cancel()
         recorder.release()
         interpreter.release()
+    }
+
+    private companion object {
+        const val LOG_TAG = "RecorderViewModel"
     }
 }

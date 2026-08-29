@@ -39,6 +39,11 @@ data class AiProviderConfig(
             name = name.trim(),
             kind = kind,
             endpoint = endpoint.trim(),
+            available = kind == AiProviderKind.LAN,
+        )
+
+        fun withInstalledConnector(config: AiProviderConfig) = config.copy(
+            available = config.available || config.kind == AiProviderKind.LAN,
         )
     }
 }
@@ -71,6 +76,7 @@ class SelectionSettings(context: Context) {
                 }
             }
         }.getOrDefault(emptyList()).ifEmpty { listOf(AiProviderConfig.ON_DEVICE_GEMMA) }
+            .map(AiProviderConfig::withInstalledConnector)
         set(value) {
             val encoded = JSONArray().apply {
                 value.forEach { provider ->
