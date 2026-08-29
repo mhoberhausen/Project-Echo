@@ -36,6 +36,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.BufferedOutputStream
@@ -61,6 +63,7 @@ class ActiveListeningService : Service() {
     private val reconnectBackoff = ReconnectBackoff()
     private lateinit var notification: ActiveListeningNotification
     private var captureJob: Job? = null
+    @Volatile private var captureStopRequested = false
     private var writer: PcmConversationWriter? = null
     private var captureStartedAtUtcMillis: Long? = null
     private var vadFramesSinceLog = 0
@@ -135,6 +138,7 @@ class ActiveListeningService : Service() {
             return
         }
         reloadCaptureConfiguration()
+        captureStopRequested = false
         setState(if (activeSource == ActiveListeningSource.PHONE) ActiveListeningState.WAITING else ActiveListeningState.STARTING)
         captureJob = scope.launch {
             if (activeSource == ActiveListeningSource.EXTERNAL_DEVICE) captureExternalWithReconnect()
@@ -162,7 +166,7 @@ class ActiveListeningService : Service() {
 
     private suspend fun captureExternalWithReconnect() {
         var attempt = 0
-        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+        while (kotlinx.coroutines.currentCoroutineContext().isActive && !captureStopRequested) {
             try {
                 audioCapture.capture(::onSourceEvent)
                 attempt++
@@ -173,6 +177,7 @@ class ActiveListeningService : Service() {
                 finalizeExternalInterruption()
                 attempt++
             }
+            if (captureStopRequested) return
             reconnectCount++
             if (attempt > MAX_RECONNECT_ATTEMPTS) {
                 setError("Could not reconnect to ${sourceName ?: "the external device"}")
@@ -189,12 +194,53 @@ class ActiveListeningService : Service() {
                 sourceName = event.descriptor.deviceName ?: sourceName
                 setState(ActiveListeningState.WAITING)
             }
-            is PcmSourceEvent.StreamStarted -> Unit
+            is PcmSourceEvent.StreamStarted -> if (activeSource == ActiveListeningSource.EXTERNAL_DEVICE) {
+                captureStartedAtUtcMillis = System.currentTimeMillis()
+                setState(ActiveListeningState.LISTENING)
+            }
             is PcmSourceEvent.Audio -> onAudioFrame(event.samples)
+            is PcmSourceEvent.FinalizedAudio -> acceptFinalizedExternalAudio(event)
             is PcmSourceEvent.StreamStopped -> finishExternalStream(event.reason)
             is PcmSourceEvent.Disconnected -> if (activeSource == ActiveListeningSource.EXTERNAL_DEVICE) {
                 setState(ActiveListeningState.RECONNECTING)
             }
+        }
+    }
+
+    private fun acceptFinalizedExternalAudio(event: PcmSourceEvent.FinalizedAudio) {
+        check(activeSource == ActiveListeningSource.EXTERNAL_DEVICE) {
+            "Only external sources can provide finalized audio files."
+        }
+        val completed = copyExternalAudio(event)
+        val externalMetadata = currentExternalMetadata()
+        scope.launch {
+            persistAndQueue(
+                audio = completed,
+                speechDurationMillis = 0,
+                speechSegmentCount = 0,
+                longestInternalSilenceMillis = 0,
+                conversationEndSilenceMillis = 0,
+                externalMetadata = externalMetadata,
+            )
+        }
+    }
+
+    private fun copyExternalAudio(event: PcmSourceEvent.FinalizedAudio): CompletedPcm {
+        check(event.file.isFile && event.file.length() > 0 && event.file.length() % 2L == 0L) {
+            "The finalized external recording is invalid."
+        }
+        val directory = File(filesDir, "active_audio").apply { mkdirs() }
+        check(directory.isDirectory) { "Audio storage is unavailable." }
+        val destination = File.createTempFile("external_conversation_", ".pcm", directory)
+        return try {
+            event.file.copyTo(destination, overwrite = true)
+            check(destination.length() == event.file.length()) {
+                "The external recording could not be copied completely."
+            }
+            CompletedPcm(destination, event.durationMillis)
+        } catch (error: Throwable) {
+            destination.delete()
+            throw error
         }
     }
 
@@ -281,6 +327,22 @@ class ActiveListeningService : Service() {
         audio: CompletedPcm,
         timingUpdate: ConversationUpdate,
         externalMetadata: ExternalDeviceSessionMetadata?,
+    ) = persistAndQueue(
+        audio = audio,
+        speechDurationMillis = timingUpdate.cumulativeSpeechDurationMs,
+        speechSegmentCount = timingUpdate.speechSegmentCount,
+        longestInternalSilenceMillis = timingUpdate.longestInternalSilenceMs,
+        conversationEndSilenceMillis = timing.conversationEndSilenceMs,
+        externalMetadata = externalMetadata,
+    )
+
+    private suspend fun persistAndQueue(
+        audio: CompletedPcm,
+        speechDurationMillis: Long,
+        speechSegmentCount: Int,
+        longestInternalSilenceMillis: Long,
+        conversationEndSilenceMillis: Long,
+        externalMetadata: ExternalDeviceSessionMetadata?,
     ) {
         runCatching {
             val session = SessionMetadata.createTranscribing(
@@ -288,22 +350,23 @@ class ActiveListeningService : Service() {
                 transcriptionModel = container.activeListeningSettings.transcriptionModel,
                 source = audioCapture.descriptor.sessionSource,
                 audioPath = audio.file.absolutePath,
-                speechDurationMillis = timingUpdate.cumulativeSpeechDurationMs,
-                speechSegmentCount = timingUpdate.speechSegmentCount,
-                longestInternalSilenceMillis = timingUpdate.longestInternalSilenceMs,
-                conversationEndSilenceMillis = timing.conversationEndSilenceMs,
+                speechDurationMillis = speechDurationMillis,
+                speechSegmentCount = speechSegmentCount,
+                longestInternalSilenceMillis = longestInternalSilenceMillis,
+                conversationEndSilenceMillis = conversationEndSilenceMillis,
                 externalDevice = externalMetadata,
             )
             container.sessionRepository.create(session)
             container.transcriptionQueue.enqueue(session)
         }.onFailure { error ->
+            audio.file.delete()
             Log.e(TAG, "Could not queue active conversation", error)
             showError("The conversation could not be saved")
         }
     }
 
     private suspend fun pauseCapture() {
-        stopMicrophone()
+        stopCaptureGracefully(PcmSourceEndReason.PAUSE)
         val update = detector.pause()
         val completed = when (update.directive) {
             ConversationDirective.FINALIZE_CAPTURE -> writer?.finish()
@@ -318,7 +381,7 @@ class ActiveListeningService : Service() {
     }
 
     private suspend fun turnOff() {
-        stopMicrophone()
+        stopCaptureGracefully(PcmSourceEndReason.USER_STOP)
         val update = detector.turnOff()
         val completed = when (update.directive) {
             ConversationDirective.FINALIZE_CAPTURE -> writer?.finish()
@@ -334,9 +397,27 @@ class ActiveListeningService : Service() {
         stopSelf()
     }
 
-    private fun stopMicrophone() {
-        captureJob?.cancel()
+    private suspend fun stopCaptureGracefully(reason: PcmSourceEndReason) {
+        val job = captureJob
+        captureStopRequested = true
+        if (activeSource == ActiveListeningSource.EXTERNAL_DEVICE &&
+            audioCapture is TcpExternalPcmSource
+        ) {
+            (audioCapture as TcpExternalPcmSource).requestStop(reason)
+            if (withTimeoutOrNull(EXTERNAL_FINALIZE_TIMEOUT_MS) { job?.join() } == null) {
+                job?.cancelAndJoin()
+            }
+        } else {
+            job?.cancelAndJoin()
+            audioCapture.stop()
+        }
+        captureJob = null
+    }
+
+    private fun abortCapture() {
+        captureStopRequested = true
         audioCapture.stop()
+        captureJob?.cancel()
         captureJob = null
     }
 
@@ -362,7 +443,7 @@ class ActiveListeningService : Service() {
     }
 
     private fun showError(message: String) {
-        stopMicrophone()
+        abortCapture()
         captureStartedAtUtcMillis = null
         setError(message)
     }
@@ -396,6 +477,7 @@ class ActiveListeningService : Service() {
         audioCapture = TcpExternalPcmSource(
             endpoint.host,
             endpoint.port,
+            File(filesDir, "external_transfer"),
             endpoint.expectedDeviceId.ifBlank { null },
         )
     }
@@ -444,7 +526,7 @@ class ActiveListeningService : Service() {
     }
 
     override fun onDestroy() {
-        stopMicrophone()
+        abortCapture()
         discardWriter()
         scope.cancel()
         if (ActiveListeningRuntime.snapshot.value.state != ActiveListeningState.OFF) {
@@ -465,6 +547,7 @@ class ActiveListeningService : Service() {
         private const val TAG = "ActiveListening"
         private const val VAD_LOG_INTERVAL_FRAMES = 250
         private const val CONFIGURATION_REFRESH_DEBOUNCE_MS = 300L
+        private const val EXTERNAL_FINALIZE_TIMEOUT_MS = 90_000L
         const val EXTRA_HOST = "external_host"
         const val EXTRA_PORT = "external_port"
         const val EXTRA_DEVICE_ID = "external_device_id"

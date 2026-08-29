@@ -13,3 +13,5 @@ captures/
 .cxx/
 mobile/android/app/src/main/assets/models/*.bin
 mobile/android/app/src/main/assets/models/*.litertlm
+mobile/android/app/src/main/assets/models/diarization/*.onnx
+mobile/android/app/src/main/jniLibs/**/*.so

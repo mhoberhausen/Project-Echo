@@ -1,6 +1,7 @@
 package com.mobileobie.echo.external
 
 import android.content.Context
+import androidx.core.content.edit
 
 data class ExternalDeviceEndpoint(
     val host: String = "",
@@ -35,15 +36,15 @@ class ExternalDeviceSettings(context: Context) {
         )
         set(value) {
             val valid = value.validated()
-            preferences.edit()
-                .putString(KEY_HOST, valid.host)
-                .putInt(KEY_PORT, valid.port)
-                .putString(KEY_DEVICE_ID, valid.expectedDeviceId)
-                .putString(KEY_DISPLAY_NAME, valid.displayName)
-                .apply()
+            preferences.edit {
+                putString(KEY_HOST, valid.host)
+                putInt(KEY_PORT, valid.port)
+                putString(KEY_DEVICE_ID, valid.expectedDeviceId)
+                putString(KEY_DISPLAY_NAME, valid.displayName)
+            }
         }
 
-    fun forget() = preferences.edit().clear().apply()
+    fun forget() = preferences.edit { clear() }
 
     companion object {
         private const val PREFERENCES = "external_device"

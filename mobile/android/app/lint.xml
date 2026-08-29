@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Huh?'s Compose UI consistently uses Material 2. LiteRT-LM brings Material 3 into
+         the resolved graph transitively; that alone is not an in-app mixed-design-system use. -->
+    <issue id="UsingMaterialAndMaterial3Libraries" severity="ignore" />
+    <!-- Adaptive-icon XML is only recognized from a v26-qualified directory by AAPT;
+         the anydpi vector remains a valid fallback for launchers expecting a plain icon. -->
+    <issue id="ObsoleteSdkInt" severity="ignore" />
+</lint>

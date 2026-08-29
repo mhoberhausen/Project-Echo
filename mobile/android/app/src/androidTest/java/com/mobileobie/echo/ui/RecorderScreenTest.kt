@@ -4,12 +4,16 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import com.mobileobie.echo.model.MessageIntent
 import com.mobileobie.echo.model.ProcessedMessage
 import com.mobileobie.echo.model.RecorderUiState
 import com.mobileobie.echo.model.RecordingPhase
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 
 class RecorderScreenTest {
     @get:Rule
@@ -64,5 +68,33 @@ class RecorderScreenTest {
         composeRule.onNodeWithText("Intent · Note").assertIsDisplayed()
         composeRule.onNodeWithText("A key point", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("Show what was said").assertIsDisplayed()
+    }
+
+    @Test
+    fun pendingTranscriptCanBeEditedBeforeInference() {
+        var editedTranscript: String? = null
+        composeRule.setContent {
+            HuhTheme {
+                RecorderScreen(
+                    state = RecorderUiState(
+                        phase = RecordingPhase.COMPLETE,
+                        cleanedTranscript = "Original transcript.",
+                        sessionId = "manual-session",
+                    ),
+                    onRecord = {},
+                    onStop = {},
+                    onClear = {},
+                    onModelSelected = {},
+                    onProcess = {},
+                    onEditTranscript = { editedTranscript = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Edit").performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("Corrected transcript.")
+        composeRule.onNodeWithText("Save").performClick()
+
+        composeRule.runOnIdle { assertEquals("Corrected transcript.", editedTranscript) }
     }
 }

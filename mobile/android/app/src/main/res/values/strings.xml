@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Huh?</string>
+    <string name="pause_active_listening">Pause active listening</string>
 </resources>

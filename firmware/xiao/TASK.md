@@ -142,17 +142,16 @@ src/
     HuhMessageWriter.*
   transport/
     TcpAudioTransport.*
-    BleControlService.*
   device/
     DeviceIdentity.*
-    PairingStore.*
   runtime/
     StreamingController.*
     ConnectionState.*
 ```
 
 Names may adapt to the existing code style, but microphone capture, protocol encoding,
-transport, pairing, and runtime state must remain independently testable.
+transport, device identity, and runtime state must remain independently testable. BLE
+pairing components should be introduced only with the shared Android authentication contract.
 
 ## Phase 1: Preserve and extract microphone capture
 

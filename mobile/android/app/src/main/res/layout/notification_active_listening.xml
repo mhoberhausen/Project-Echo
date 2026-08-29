@@ -33,7 +33,7 @@
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Pause active listening"
+        android:contentDescription="@string/pause_active_listening"
         android:padding="12dp"
         android:src="@drawable/ic_pause_notification" />
 </LinearLayout>

@@ -45,6 +45,8 @@ fun RecorderScreen(
     onClear: () -> Unit,
     onModelSelected: (TranscriptionModel) -> Unit,
     onProcess: () -> Unit,
+    onEditTranscript: (String) -> Unit = {},
+    onRenameSpeakers: (Map<String, String>) -> Unit = {},
     showAppTitle: Boolean = true,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -80,8 +82,12 @@ fun RecorderScreen(
                     Spacer(Modifier.height(24.dp))
                     CircularProgressIndicator()
                 }
-                RecordingPhase.COMPLETE -> TranscriptResult(state, onRecord, onProcess, onClear)
-                RecordingPhase.PROCESSED -> ProcessedMessage(state, onRecord, onClear)
+                RecordingPhase.COMPLETE -> TranscriptResult(
+                    state, onRecord, onProcess, onEditTranscript, onRenameSpeakers, onClear,
+                )
+                RecordingPhase.PROCESSED -> ProcessedMessage(
+                    state, onRecord, onEditTranscript, onRenameSpeakers, onClear,
+                )
                 RecordingPhase.ERROR -> {
                     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                         Text(state.errorMessage.orEmpty(), modifier = Modifier.padding(18.dp))
@@ -121,12 +127,30 @@ private fun TranscriptResult(
     state: RecorderUiState,
     onRecord: () -> Unit,
     onProcess: () -> Unit,
+    onEditTranscript: (String) -> Unit,
+    onRenameSpeakers: (Map<String, String>) -> Unit,
     onClear: () -> Unit,
 ) {
     var showOriginal by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var namingSpeakers by remember { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Text("What Was Said", fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("What Was Said", fontWeight = FontWeight.Bold)
+                if (state.sessionId != null) {
+                    Row {
+                        if (state.speakerIds.isNotEmpty()) {
+                            TextButton(onClick = { namingSpeakers = true }) { Text("Name speakers") }
+                        }
+                        TextButton(onClick = { editing = true }) { Text("Edit") }
+                    }
+                }
+            }
             Text(state.cleanedTranscript, modifier = Modifier.padding(top = 10.dp))
         }
     }
@@ -143,11 +167,41 @@ private fun TranscriptResult(
     Button(onClick = onRecord) { Text("Listen again") }
     Button(onClick = onProcess, modifier = Modifier.padding(top = 8.dp)) { Text("Make sense of this") }
     OutlinedButton(onClick = onClear, modifier = Modifier.padding(top = 8.dp)) { Text("Clear") }
+    if (editing) {
+        TranscriptEditorDialog(
+            transcript = state.cleanedTranscript,
+            discardsInference = false,
+            onDismiss = { editing = false },
+            onSave = { edited ->
+                editing = false
+                onEditTranscript(edited)
+            },
+        )
+    }
+    if (namingSpeakers) {
+        SpeakerNamesDialog(
+            speakerIds = state.speakerIds,
+            discardsInference = false,
+            onDismiss = { namingSpeakers = false },
+            onSave = { names ->
+                namingSpeakers = false
+                onRenameSpeakers(names)
+            },
+        )
+    }
 }
 
 @Composable
-private fun ProcessedMessage(state: RecorderUiState, onRecord: () -> Unit, onClear: () -> Unit) {
+private fun ProcessedMessage(
+    state: RecorderUiState,
+    onRecord: () -> Unit,
+    onEditTranscript: (String) -> Unit,
+    onRenameSpeakers: (Map<String, String>) -> Unit,
+    onClear: () -> Unit,
+) {
     var showTranscript by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var namingSpeakers by remember { mutableStateOf(false) }
     val result = requireNotNull(state.processedMessage)
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -179,8 +233,39 @@ private fun ProcessedMessage(state: RecorderUiState, onRecord: () -> Unit, onCle
         }
     }
     Spacer(Modifier.height(20.dp))
-    Button(onClick = onRecord) { Text("Listen again") }
+    if (state.sessionId != null) {
+        OutlinedButton(onClick = { editing = true }) { Text("Edit transcript") }
+        if (state.speakerIds.isNotEmpty()) {
+            OutlinedButton(
+                onClick = { namingSpeakers = true },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("Name speakers") }
+        }
+    }
+    Button(onClick = onRecord, modifier = Modifier.padding(top = 8.dp)) { Text("Listen again") }
     OutlinedButton(onClick = onClear, modifier = Modifier.padding(top = 8.dp)) { Text("Clear") }
+    if (editing) {
+        TranscriptEditorDialog(
+            transcript = state.cleanedTranscript,
+            discardsInference = true,
+            onDismiss = { editing = false },
+            onSave = { edited ->
+                editing = false
+                onEditTranscript(edited)
+            },
+        )
+    }
+    if (namingSpeakers) {
+        SpeakerNamesDialog(
+            speakerIds = state.speakerIds,
+            discardsInference = true,
+            onDismiss = { namingSpeakers = false },
+            onSave = { names ->
+                namingSpeakers = false
+                onRenameSpeakers(names)
+            },
+        )
+    }
 }
 
 private fun statusText(state: RecorderUiState) = when (state.phase) {

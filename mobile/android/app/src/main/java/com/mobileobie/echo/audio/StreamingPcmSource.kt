@@ -1,6 +1,7 @@
 package com.mobileobie.echo.audio
 
 import com.mobileobie.echo.model.SessionSource
+import java.io.File
 
 /** A cancellable source of canonical 16 kHz, mono, PCM16 frames. */
 interface StreamingPcmSource {
@@ -14,6 +15,8 @@ sealed interface PcmSourceEvent {
     data class Ready(val descriptor: PcmSourceDescriptor) : PcmSourceEvent
     data class StreamStarted(val streamId: String?) : PcmSourceEvent
     data class Audio(val samples: ShortArray) : PcmSourceEvent
+    /** Complete canonical PCM file. Consumers must copy it before this callback returns. */
+    data class FinalizedAudio(val file: File, val durationMillis: Long) : PcmSourceEvent
     data class StreamStopped(val reason: PcmSourceEndReason) : PcmSourceEvent
     data class Disconnected(val message: String?) : PcmSourceEvent
 }

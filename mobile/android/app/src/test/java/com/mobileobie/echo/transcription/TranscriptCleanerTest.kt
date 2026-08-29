@@ -25,4 +25,11 @@ class TranscriptCleanerTest {
     @Test fun handlesBlankInput() {
         assertEquals("", cleaner.clean("  "))
     }
+
+    @Test fun preservesDiarizedSpeakerLines() {
+        assertEquals(
+            "Speaker 1: Hello there.\nSpeaker 2: Hi back.",
+            cleaner.clean("Speaker 1: Um, hello there.\nSpeaker 2: Uh, hi back."),
+        )
+    }
 }

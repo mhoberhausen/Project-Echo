@@ -72,15 +72,13 @@ class SQLiteSessionRepositoryTest {
         assertEquals(100, processed.transcriptSegments.single().startMillis)
         assertEquals("speaker-1", processed.transcriptSegments.single().speakerId)
 
-        repository.rename(session.id, "Renamed")
-        assertEquals("Renamed", repository.sessions.value.single().title)
-
         repository.updateTranscript(session.id, "Edited transcript")
         val edited = repository.sessions.value.single()
         assertEquals(SessionStatus.TRANSCRIBED, edited.status)
         assertEquals("Edited transcript", edited.transcript)
         assertNull(edited.processText)
         assertEquals(emptyList<String>(), edited.tags)
+        assertEquals(emptyList<TranscriptSegment>(), edited.transcriptSegments)
 
         val reloaded = SQLiteSessionRepository(context, databaseName)
         reloaded.refresh()
@@ -118,5 +116,40 @@ class SQLiteSessionRepositoryTest {
         assertEquals("Recorder One", restored.externalDevice?.model)
         assertEquals(2, restored.externalDevice?.gapCount)
         assertEquals(true, restored.externalDevice?.degraded)
+    }
+
+    @Test
+    fun renamesDiarizedSpeakersAndInvalidatesInference() = runBlocking {
+        val session = SessionMetadata.create(
+            durationMillis = 2_000,
+            transcript = "Speaker 1: Hello.\nSpeaker 2: Hi.",
+            originalTranscript = "Speaker 1: Hello.\nSpeaker 2: Hi.",
+            transcriptSegments = listOf(
+                TranscriptSegment(0, 900, "Hello.", "speaker-1"),
+                TranscriptSegment(1_000, 1_900, "Hi.", "speaker-2"),
+            ),
+            transcriptionModel = TranscriptionModel.FAST,
+        )
+        repository.create(session)
+        repository.updateStatus(session.id, SessionStatus.QUEUED)
+        repository.updateStatus(session.id, SessionStatus.PROCESSING)
+        repository.saveProcessed(
+            session.id,
+            ProcessedMessage("Summary", MessageIntent.NOTE, emptyList(), emptyList(), listOf("tag")),
+        )
+
+        repository.renameSpeakers(
+            session.id,
+            mapOf("speaker-1" to "Alice", "speaker-2" to "Bob"),
+        )
+
+        val renamed = repository.sessions.value.single()
+        assertEquals("Alice: Hello.\nBob: Hi.", renamed.transcript)
+        assertEquals("Alice: Hello.\nBob: Hi.", renamed.originalTranscript)
+        assertEquals(listOf("Alice", "Bob"), renamed.transcriptSegments.map { it.speakerId })
+        assertEquals(listOf(0L, 1_000L), renamed.transcriptSegments.map { it.startMillis })
+        assertEquals(SessionStatus.TRANSCRIBED, renamed.status)
+        assertNull(renamed.processText)
+        assertEquals(emptyList<String>(), renamed.tags)
     }
 }

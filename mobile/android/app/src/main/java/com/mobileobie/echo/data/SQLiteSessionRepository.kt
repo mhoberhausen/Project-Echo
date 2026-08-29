@@ -13,6 +13,7 @@ import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.model.TranscriptionModel
 import com.mobileobie.echo.model.TranscriptSegment
+import com.mobileobie.echo.transcription.SpeakerLabels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,20 +59,35 @@ class SQLiteSessionRepository(
         })
     }
 
-    override suspend fun rename(id: String, title: String) = withContext(Dispatchers.IO) {
-        val normalized = title.trim()
-        require(normalized.isNotEmpty()) { "A session title cannot be empty." }
-        update(id, ContentValues().apply {
-            put(COLUMN_TITLE, normalized)
-            put(COLUMN_UPDATED_AT, System.currentTimeMillis())
-        })
-    }
-
     override suspend fun updateTranscript(id: String, transcript: String) = withContext(Dispatchers.IO) {
         val normalized = transcript.trim()
         require(normalized.isNotEmpty()) { "A transcript cannot be empty." }
         update(id, ContentValues().apply {
             put(COLUMN_TRANSCRIPT, normalized)
+            put(COLUMN_TRANSCRIPT_SEGMENTS_JSON, "[]")
+            put(COLUMN_STATUS, SessionStatus.TRANSCRIBED.name)
+            putNull(COLUMN_PROCESS_TEXT)
+            put(COLUMN_TAGS_JSON, "[]")
+            put(COLUMN_UPDATED_AT, System.currentTimeMillis())
+        })
+    }
+
+    override suspend fun renameSpeakers(id: String, names: Map<String, String>) = withContext(Dispatchers.IO) {
+        val session = _sessions.value.firstOrNull { it.id == id }
+            ?: error("The saved session no longer exists.")
+        val speakerIds = session.transcriptSegments.mapNotNull(TranscriptSegment::speakerId).distinct()
+        require(speakerIds.isNotEmpty() && names.keys == speakerIds.toSet()) {
+            "Speaker names do not match this transcript."
+        }
+        val normalized = SpeakerLabels.normalize(names)
+        val segments = session.transcriptSegments.map { segment ->
+            segment.speakerId?.let { speakerId -> segment.copy(speakerId = normalized.getValue(speakerId)) }
+                ?: segment
+        }
+        update(id, ContentValues().apply {
+            put(COLUMN_TRANSCRIPT, SpeakerLabels.renameInText(session.transcript, normalized))
+            put(COLUMN_ORIGINAL_TRANSCRIPT, SpeakerLabels.renameInText(session.originalTranscript, normalized))
+            put(COLUMN_TRANSCRIPT_SEGMENTS_JSON, segments.toJson().toString())
             put(COLUMN_STATUS, SessionStatus.TRANSCRIBED.name)
             putNull(COLUMN_PROCESS_TEXT)
             put(COLUMN_TAGS_JSON, "[]")

@@ -31,4 +31,5 @@ data class RecorderUiState(
     val selectedModel: TranscriptionModel = TranscriptionModel.ACCURATE,
     val processedMessage: ProcessedMessage? = null,
     val sessionId: String? = null,
+    val speakerIds: List<String> = emptyList(),
 )

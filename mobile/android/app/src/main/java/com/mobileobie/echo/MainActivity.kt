@@ -27,7 +27,9 @@ import com.mobileobie.echo.active.ActiveListeningState
 import com.mobileobie.echo.active.ActiveListeningSource
 import com.mobileobie.echo.external.ExternalDeviceEndpoint
 import com.mobileobie.echo.interpretation.GemmaTranscriptInterpreter
+import com.mobileobie.echo.interpretation.SelectedTranscriptInterpreter
 import com.mobileobie.echo.model.shareText
+import com.mobileobie.echo.settings.AudioInputChoice
 import com.mobileobie.echo.ui.HuhTheme
 import com.mobileobie.echo.ui.HuhApp
 import com.mobileobie.echo.ui.RecorderViewModel
@@ -43,7 +45,10 @@ class MainActivity : ComponentActivity() {
             transcriber = container.transcriber,
             diarizer = container.diarizer,
             cleaner = container.cleaner,
-            interpreter = GemmaTranscriptInterpreter(applicationContext),
+            interpreter = SelectedTranscriptInterpreter(
+                providers = { container.selectionSettings.aiProviders },
+                onDeviceInterpreter = GemmaTranscriptInterpreter(applicationContext),
+            ),
             sessionRepository = container.sessionRepository,
         )
 
@@ -73,6 +78,8 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(container.externalDeviceSettings.endpoint)
             }
             var pendingExternalEndpoint by remember { mutableStateOf<ExternalDeviceEndpoint?>(null) }
+            var selectedAudioInput by remember { mutableStateOf(container.selectionSettings.audioInput) }
+            var aiProviders by remember { mutableStateOf(container.selectionSettings.aiProviders) }
             SideEffect {
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     isAppearanceLightStatusBars = !darkTheme
@@ -169,6 +176,8 @@ class MainActivity : ComponentActivity() {
                     onCancelRecording = recorderViewModel::cancelRecording,
                     onDeleteSession = recorderViewModel::deleteSession,
                     onProcessSession = recorderViewModel::processSavedSession,
+                    onEditTranscript = recorderViewModel::updateTranscript,
+                    onRenameSpeakers = recorderViewModel::renameSpeakers,
                     onShareSession = { session ->
                         val sendIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
@@ -268,6 +277,27 @@ class MainActivity : ComponentActivity() {
                     onForgetExternalDevice = {
                         container.externalDeviceSettings.forget()
                         externalEndpoint = container.externalDeviceSettings.endpoint
+                    },
+                    selectedAudioInput = selectedAudioInput,
+                    onAudioInputSelected = { choice ->
+                        selectedAudioInput = choice
+                        container.selectionSettings.audioInput = choice
+                        if (choice == AudioInputChoice.XIAO && externalEndpoint.host.isNotBlank()) {
+                            pendingExternalEndpoint = externalEndpoint
+                            val permissions = buildList {
+                                if (Build.VERSION.SDK_INT >= 37) add(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                                if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            if (permissions.isEmpty()) {
+                                pendingExternalEndpoint = null
+                                ActiveListeningController.turnOnExternal(this, externalEndpoint)
+                            } else externalPermissionLauncher.launch(permissions.toTypedArray())
+                        }
+                    },
+                    aiProviders = aiProviders,
+                    onAiProvidersChanged = {
+                        aiProviders = it
+                        container.selectionSettings.aiProviders = it
                     },
                 )
             }

@@ -21,7 +21,8 @@ import org.junit.Test
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
-class TranscriptionQueueTest {
+/** Processor contract tests; SerializedTranscriber supplies the queue's single-model invariant. */
+class TranscriptionProcessorTest {
     @Test
     fun jobsAreProcessedSeriallyAndSaved() = runBlocking {
         val repository = FakeRepository()
@@ -106,6 +107,29 @@ class TranscriptionQueueTest {
         assertEquals("speaker-1", repository.sessions.value.single().transcriptSegments.single().speakerId)
     }
 
+    @Test
+    fun failedTranscriptionIsRetainedForExplicitRetry() = runBlocking {
+        val repository = FakeRepository()
+        val session = queuedSession("failed-transcription")
+        repository.create(session)
+        val processor = TranscriptionProcessor(
+            repository,
+            object : Transcriber {
+                override suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel): TimestampedTranscript {
+                    error("Native transcription failed")
+                }
+            },
+            PassthroughSpeakerDiarizer,
+            TranscriptCleaner(),
+            { AutomaticCaptureCleanupPolicy(0) },
+        )
+
+        assertEquals(false, processor.process(session.id))
+        assertEquals(SessionStatus.TRANSCRIPTION_FAILED, repository.sessions.value.single().status)
+        assertEquals(true, File(requireNotNull(session.audioPath)).exists())
+        repository.delete(session.id)
+    }
+
     private fun queuedSession(id: String): SessionRecord {
         val file = File.createTempFile(id, ".pcm")
         file.writeBytes(ByteArray(640) { if (it % 2 == 0) 1 else 0 })
@@ -151,8 +175,8 @@ private class FakeRepository : SessionRepository {
         }
     }
     override suspend fun saveProcessed(id: String, message: ProcessedMessage) = Unit
-    override suspend fun rename(id: String, title: String) = Unit
     override suspend fun updateTranscript(id: String, transcript: String) = Unit
+    override suspend fun renameSpeakers(id: String, names: Map<String, String>) = Unit
     override suspend fun delete(id: String) {
         mutableSessions.value.firstOrNull { it.id == id }?.audioPath?.let { File(it).delete() }
         mutableSessions.value = mutableSessions.value.filterNot { it.id == id }

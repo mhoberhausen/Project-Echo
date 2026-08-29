@@ -13,8 +13,8 @@ interface SessionRepository {
     suspend fun create(session: SessionRecord)
     suspend fun updateStatus(id: String, status: SessionStatus)
     suspend fun saveProcessed(id: String, message: ProcessedMessage)
-    suspend fun rename(id: String, title: String)
     suspend fun updateTranscript(id: String, transcript: String)
+    suspend fun renameSpeakers(id: String, names: Map<String, String>)
     suspend fun saveTranscription(
         id: String,
         transcript: String,

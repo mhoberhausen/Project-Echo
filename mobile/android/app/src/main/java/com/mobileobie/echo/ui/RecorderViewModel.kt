@@ -14,6 +14,7 @@ import com.mobileobie.echo.model.TranscriptionModel
 import com.mobileobie.echo.transcription.Transcriber
 import com.mobileobie.echo.transcription.TranscriptCleaner
 import com.mobileobie.echo.transcription.SpeakerDiarizer
+import com.mobileobie.echo.transcription.SpeakerLabels
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,6 +89,7 @@ class RecorderViewModel(
                     cleanedTranscript = session.transcript,
                     selectedModel = _uiState.value.selectedModel,
                     sessionId = session.id,
+                    speakerIds = session.transcriptSegments.mapNotNull { it.speakerId }.distinct(),
                 )
             }.onFailure(::showError)
         }
@@ -136,6 +138,47 @@ class RecorderViewModel(
         )
     }
 
+    fun updateTranscript(sessionId: String, transcript: String) {
+        viewModelScope.launch {
+            runCatching { sessionRepository.updateTranscript(sessionId, transcript) }
+                .onSuccess {
+                    if (_uiState.value.sessionId == sessionId) {
+                        _uiState.update { state ->
+                            state.copy(
+                                phase = RecordingPhase.COMPLETE,
+                                cleanedTranscript = transcript.trim(),
+                                processedMessage = null,
+                                errorMessage = null,
+                                speakerIds = emptyList(),
+                            )
+                        }
+                    }
+                }
+                .onFailure(::showError)
+        }
+    }
+
+    fun renameSpeakers(sessionId: String, names: Map<String, String>) {
+        viewModelScope.launch {
+            runCatching { sessionRepository.renameSpeakers(sessionId, names) }
+                .onSuccess {
+                    if (_uiState.value.sessionId == sessionId) {
+                        _uiState.update { state ->
+                            state.copy(
+                                phase = RecordingPhase.COMPLETE,
+                                cleanedTranscript = SpeakerLabels.renameInText(state.cleanedTranscript, names),
+                                originalTranscript = SpeakerLabels.renameInText(state.originalTranscript, names),
+                                processedMessage = null,
+                                errorMessage = null,
+                                speakerIds = state.speakerIds.map { names.getValue(it) },
+                            )
+                        }
+                    }
+                }
+                .onFailure(::showError)
+        }
+    }
+
     private fun processSession(
         sessionId: String,
         transcript: String,
@@ -164,7 +207,7 @@ class RecorderViewModel(
                         _uiState.update {
                             it.copy(
                                 phase = RecordingPhase.COMPLETE,
-                                errorMessage = error.message ?: "Gemma could not process this transcript.",
+                                errorMessage = error.message ?: "The selected AI method could not process this transcript.",
                             )
                         }
                     }
@@ -224,6 +267,5 @@ class RecorderViewModel(
         processingJob?.cancel()
         recorder.release()
         interpreter.release()
-        super.onCleared()
     }
 }

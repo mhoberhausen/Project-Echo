@@ -1,62 +1,134 @@
-# Huh?
+# Huh? Android
 
-Huh? is an offline-first Android conversation-memory MVP. It records 16 kHz mono PCM,
-transcribes speech through a replaceable `whisper.cpp` boundary, removes only
-high-confidence filler words, and displays both the concise and original transcript.
+Huh? is an offline-first Android conversation-memory app targeting a Pixel 8 Pro on Android
+17. It records or receives 16 kHz mono PCM, transcribes locally with `whisper.cpp`, optionally
+assigns speakers with sherpa-onnx, removes only high-confidence filler words, stores sessions
+in app-private SQLite, and optionally interprets a transcript with bundled Gemma 3 1B.
 
-## Current status
+## Implemented experience
 
-- Compose single-screen recording flow
-- Runtime microphone permission
-- In-memory `AudioRecord` capture using the voice-recognition audio source
-- Recording timer and explicit idle/recording/processing/result/error states
-- Deterministic filler removal with unit coverage
-- Local-device network receiver with no cloud speech-recognition fallback
-- Pinned `whisper.cpp` v1.9.1 native engine and JNI bridge
-- Bundled `tiny.en` and `base.en` models with Fast/Accurate selection
-- LiteRT-LM 0.16.1 integration for bundled Gemma 3 1B int4 transcript interpretation
+- **Listen Now:** explicit phone recording with Fast (`tiny.en`) or Accurate (`base.en`)
+  Whisper models.
+- **Keep an Ear Out:** foreground-service capture with VAD, configurable timing, durable
+  WorkManager transcription, and visible status/notification controls.
+- **Huh? Puck:** Android-controlled capture, resumable SD-file transfer, direct Whisper
+  queueing, and persisted device/stream diagnostics over a user-selected trusted LAN.
+- **Transcripts:** original and cleaned text, Whisper segment timestamps, optional speaker
+  labels, one line per speaker turn, editing, and custom speaker names.
+- **Sessions:** app-private history, status filtering, processing retry, sharing, and deletion.
+- **Interpretation:** on-device Gemma summary, intent, key points, action items, and tags.
+- **Configuration:** audio-device picker plus persistent AI-provider ordering and enablement.
 
-The complete recording-to-transcript pipeline runs locally. Android's `INTERNET` permission
-is used only for a direct trusted-LAN connection to a user-selected Huh? Puck; the app never
-sends audio or transcript data to an internet or cloud service.
-The Process action also runs locally: Gemma returns a summary, intent, key points, and
-action items that are strictly validated before display.
+Bluetooth capture and LAN/third-party LLM execution are not implemented. Their UI entries
+are configuration/setup boundaries and say so. Only an enabled bundled Gemma provider is
+eligible for interpretation.
 
-## Build
+## Architecture
 
-The project uses Gradle 9.3.1, Android Gradle Plugin 9.1.1, AGP's built-in Kotlin,
-the Kotlin 2.2.10 Compose compiler plugin, the June 2026 Compose BOM, and Android API 37. It is configured to run
-Gradle with Android Studio's bundled JDK 25 while emitting Java 17-compatible app
-bytecode. Install the Android 17/API 37 SDK platform before syncing. The app keeps
-`minSdk 26` and does not depend on an OS speech service.
+```text
+Compose UI (HuhApp / RecorderScreen)
+        |
+RecorderViewModel ---- SessionRepository (SQLite)
+        |                       ^
+phone AudioRecord               |
+        |                 WorkManager queue
+        v                       |
+WhisperTranscriber -> SpeakerDiarizer -> TranscriptCleaner
+        |
+SelectedTranscriptInterpreter -> bundled Gemma
 
-## Native transcription
+ActiveListeningService
+  |- phone StreamingAudioCapture -> VAD / ConversationDetector
+  `- TcpExternalPcmSource -> finalized Puck PCM (bypasses phone VAD)
+```
 
-The build pins NDK 28.2.13676358, CMake 3.31.6, and upstream `whisper.cpp` v1.9.1.
-Only `arm64-v8a` is built because this MVP targets the Pixel 8 Pro. The JNI bridge
-converts captured signed 16-bit PCM to normalized floats, runs English inference on a
-background coroutine, and returns all generated text segments to Kotlin.
+Important boundaries:
 
-`ggml-tiny.en.bin` and `ggml-base.en.bin` live in `app/src/main/assets/models/`.
-The selected model is copied to private app storage on first use. Model binaries are
-ignored by Git; on a fresh checkout, download both with:
+- `Transcriber`, `SpeakerDiarizer`, `AcousticDiarizationEngine`, and `TranscriptInterpreter`
+  keep native/model implementations replaceable.
+- `TranscriptionProcessor` owns the durable audio-to-session pipeline; `TranscriptionQueue`
+  serializes WorkManager requests, while `SerializedTranscriber` also protects Whisper from
+  concurrent manual/background use.
+- `SessionRepository` is the persistence boundary. Manual transcript edits intentionally
+  clear timestamps/speaker segments; transcript or speaker edits invalidate stale inference.
+- `SelectionSettings`, `ActiveListeningSettings`, and `ExternalDeviceSettings` hold small
+  local preferences. Recordings and transcript content remain in app-private storage.
+
+## Privacy and permissions
+
+The app declares:
+
+- `RECORD_AUDIO` for phone capture.
+- foreground-service and notification permissions for visible active listening and local
+  transcription work.
+- `ACCESS_LOCAL_NETWORK` on Android 17 and `INTERNET` for direct TCP communication with the
+  user-configured Puck.
+
+There is no analytics SDK, account system, cloud transcription, or implemented remote-LLM
+connector. `android:usesCleartextTraffic="false"` remains set; Puck communication uses the
+documented raw HUH1 socket protocol. The trusted-LAN Puck POC is unauthenticated and should
+not be used on an untrusted network.
+
+## Toolchain
+
+- Gradle 9.3.1 and Android Gradle Plugin 9.1.1
+- Kotlin Compose plugin 2.2.10 and Compose BOM 2026.08.00
+- compile/target SDK 37, minimum SDK 26
+- Java 17 app bytecode using Android Studio's bundled JDK
+- NDK 28.2.13676358, CMake 3.31.6, arm64-v8a only
+- LiteRT-LM 0.16.1
+
+Run Gradle from this directory:
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug compileDebugAndroidTestKotlin
+```
+
+With an authorized device connected:
+
+```powershell
+.\gradlew.bat connectedDebugAndroidTest
+```
+
+## Model setup
+
+Model binaries are ignored by Git and belong in `app/src/main/assets/models/`.
+
+Whisper:
 
 ```powershell
 app\src\main\cpp\whisper.cpp\models\download-ggml-model.cmd tiny.en app\src\main\assets\models
 app\src\main\cpp\whisper.cpp\models\download-ggml-model.cmd base.en app\src\main\assets\models
 ```
 
-## Transcript cleanup policy
+Gemma: obtain `gemma3-1b-it-int4.litertlm` from the LiteRT community release after accepting
+its license. The expected artifact size is documented in `app/src/main/assets/models/README.md`.
 
-The cleaner removes standalone `um`, `uh`, `erm`, `er`, and `hmm`, collapses immediate
-word repetitions, and normalizes spacing. It preserves ambiguous words such as `like`,
-`so`, and `well`, because deleting them blindly can change meaning. The original
-Whisper output is always retained and available in the UI.
+Sherpa-onnx diarization:
 
-## On-device message processing
+```powershell
+.\scripts\setup-sherpa-onnx.ps1
+```
 
-The POC uses the generic `gemma3-1b-it-int4.litertlm` artifact through LiteRT-LM's CPU
-backend. Put the 584,417,280-byte model in `app/src/main/assets/models/` after accepting
-the Gemma license at https://huggingface.co/litert-community/Gemma3-1B-IT. The binary is
-ignored by Git and bundled directly into the APK. On first Process use it is copied to
-private app storage because LiteRT-LM requires a filesystem model path.
+That script installs the pinned arm64 JNI library and segmentation/embedding models. If the
+optional artifacts are absent, `SpeakerDiarizerProvider` uses an explicit pass-through
+fallback and transcripts remain timestamped without speaker IDs.
+
+## Tests
+
+- JVM tests cover VAD, conversation timing, rolling buffers, cleanup, timestamps, speaker
+  alignment/naming, protocol framing, sequence gaps, reconnect timing, external transfer,
+  structured Gemma parsing, provider routing, session metadata, and transcription processing.
+- Instrumentation tests cover SQLite persistence, notification behavior, Compose journeys,
+  the real bundled Gemma model, settings persistence, and native sherpa-onnx startup.
+- Native Whisper is compiled as part of the debug build. Firmware/protocol fixtures live in
+  `firmware/xiao` and are run separately with PlatformIO/Python.
+
+## Related documentation
+
+- `SPEC.md` — product scope, completed behavior, and known boundaries.
+- `docs/HUH_AUDIO_PROTOCOL_V1.md` — canonical Android/Puck wire contract.
+- `docs/EXTERNAL_DEVICE_SETUP.md` — trusted-LAN Puck setup and troubleshooting.
+- `app/src/main/assets/models/README.md` — model filenames and provenance.
+- `third_party/SHERPA_ONNX_NOTICES.md` — diarization dependency notices.

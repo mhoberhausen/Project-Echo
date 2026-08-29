@@ -51,7 +51,7 @@ data class ExternalDeviceSessionMetadata(
     val interrupted: Boolean = false,
 )
 
-/** A Whisper text interval, ready for a future diarizer to attach a speaker label. */
+/** A Whisper text interval with an optional speaker identity assigned after transcription. */
 data class TranscriptSegment(
     val startMillis: Long,
     val endMillis: Long,

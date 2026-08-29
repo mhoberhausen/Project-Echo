@@ -26,14 +26,19 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 - [x] Start/stop recording flow with a visible timer
 - [x] Fully local `whisper.cpp` transcription with bundled `tiny.en` and `base.en` models
 - [x] Preserve Whisper segment start/end timestamps with each saved transcript
-- [x] Run an explicit post-transcription speaker-diarization boundary; the current local
-  placeholder preserves segments without assigning speaker labels
+- [x] Run optional sherpa-onnx speaker diarization after Whisper; a model-agnostic acoustic
+  engine boundary and pass-through fallback keep the stage replaceable
 - [x] Deterministic filler-word cleanup with access to the original transcript
 - [x] Fully local LiteRT-LM inference with bundled Gemma 3 1B int4
 - [x] Structured response parsing for summary, intent, key points, and action items
 - [x] Resilient parsing when Gemma adds metadata or omits an empty `action_items` array
 - [x] Processed-result UI, including transcript disclosure and empty action-item handling
 - [x] No `INTERNET` permission, cloud API, account, or external transmission path
+- [x] Persist an audio-input picker for the phone or configured Huh? Puck, with an honest
+  Bluetooth setup placeholder until Bluetooth capture is implemented
+- [x] Provide a nested AI Selection settings page with persistent enablement, drag ordering,
+  and configuration-only LAN/third-party entries; only bundled Gemma executes inference
+  until explicit connectors and credential storage are implemented
 - [x] Debug APK builds, installs, and launches on the target Pixel 8 Pro
 - [x] JVM parser regression tests and Pixel tests for Gemma inference and result rendering
 
@@ -137,8 +142,9 @@ Each successful Manual transcription creates an app-private persisted session wi
 - [x] Full-content detail view from the navigation drawer
 - [x] Share through the Android Sharesheet using `ACTION_SEND` and `text/plain`
 - [x] Confirmed local deletion
-- [ ] Add UI for renaming and transcript editing; repository operations already invalidate
-  stale processed output and return an edited transcript to Pending
+- [x] Edit a transcript before Gemma processing or from a processed saved session; saving
+  clears timestamp segments and stale inferred output, then returns the session to Pending
+- [ ] Add UI for renaming saved sessions; repository support already exists
 
 Sessions are stored in an app-private SQLite database behind a `SessionRepository`
 interface. This keeps structured history local, updateable, and independent from the
@@ -147,7 +153,11 @@ Compose UI while avoiding an additional annotation-processor toolchain for the P
 ### Processing Pipeline Boundary
 
 - [x] Run diarization after Whisper transcription and before transcript persistence and
-  cleanup; the placeholder currently performs no speaker inference
+  cleanup; align sherpa-onnx speaker turns to Whisper segments by greatest timestamp overlap
+- [x] Persist speaker IDs and include human-readable speaker labels in the transcript passed
+  to the user-triggered Gemma interpretation step
+- [x] Render each diarized speaker turn on its own line and allow generated speaker labels
+  to be replaced with distinct user-provided names; renaming invalidates stale inference
 - [x] Save the transcript before offering local LLM processing.
 - [x] Allow a Pending or Failed saved transcript to start/retry processing from its
   session detail view; disable the action while Queued or Processing.
@@ -243,6 +253,13 @@ after the user selects **Make sense of this** from a ready session.
   with legacy stored `XIAO` values mapped to the hardware-neutral external source
 - [x] Versioned, hardware-neutral Huh? Audio Protocol v1 with bounded framing, canonical
   PCM validation, stream identity, duplicate suppression, and explicit gap handling
+- [x] Android-controlled external capture lifecycle: issue `START`, renew the five-second
+  heartbeat lease, send reasoned `STOP` for Pause/Turn Off, and wait for device finalization
+- [x] Resumable microSD transfer using `FETCH`/offset-tagged `FILE_CHUNK`/`FILE_END`, with
+  local byte-count and PCM-alignment verification before `ACK` authorizes device deletion
+- [x] Keep external capture independent from downstream Whisper processing: capture is
+  finalized on the device first, transferred as raw PCM, and queued directly for Whisper
+  without applying the phone microphone's VAD/minimum-speech gate a second time
 - [x] Bounded local-TCP PCM source plus persistent universal device, firmware, transport,
   stream, gap, reconnect, overrun, degradation, and interruption metadata
 - [x] Local-device socket permissions (`INTERNET` and Android 17 `ACCESS_LOCAL_NETWORK`)
@@ -763,7 +780,7 @@ Milestone 2
 - [x] Conversation/session history foundation
 - [x] App-private SQLite persistence
 - [x] UTC timestamps with local-time display
-- [ ] Rename and transcript-edit UI
+- [x] Rename and transcript-edit UI
 - [ ] Durable background processing queue
 
 Milestone 3

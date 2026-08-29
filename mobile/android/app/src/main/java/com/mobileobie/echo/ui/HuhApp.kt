@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -56,6 +57,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
@@ -71,9 +74,11 @@ import com.mobileobie.echo.active.ActiveListeningSnapshot
 import com.mobileobie.echo.active.ActiveListeningState
 import com.mobileobie.echo.active.ActiveListeningSource
 import com.mobileobie.echo.external.ExternalDeviceEndpoint
+import com.mobileobie.echo.settings.AiProviderConfig
+import com.mobileobie.echo.settings.AudioInputChoice
 import kotlinx.coroutines.launch
 
-private enum class AppDestination { HOME, MANUAL, LIVE, SESSION, PREFERENCES, ADVANCED, EXTERNAL_DEVICE }
+private enum class AppDestination { HOME, MANUAL, LIVE, SESSION, PREFERENCES, ADVANCED, EXTERNAL_DEVICE, AI_SELECTION }
 private enum class ChatFilter(val label: String) { ALL("All"), PENDING("Pending"), PROCESSED("Processed") }
 
 @Composable
@@ -92,6 +97,8 @@ fun HuhApp(
     onCancelRecording: () -> Unit,
     onDeleteSession: (String) -> Unit,
     onProcessSession: (String) -> Unit,
+    onEditTranscript: (String, String) -> Unit = { _, _ -> },
+    onRenameSpeakers: (String, Map<String, String>) -> Unit = { _, _ -> },
     onShareSession: (SessionRecord) -> Unit,
     activeListening: ActiveListeningSnapshot = ActiveListeningSnapshot(),
     queuedTranscriptions: Int = 0,
@@ -114,12 +121,17 @@ fun HuhApp(
     onSaveExternalDevice: (ExternalDeviceEndpoint) -> Unit = {},
     onConnectExternalDevice: (ExternalDeviceEndpoint) -> Unit = {},
     onForgetExternalDevice: () -> Unit = {},
+    selectedAudioInput: AudioInputChoice = AudioInputChoice.PHONE,
+    onAudioInputSelected: (AudioInputChoice) -> Unit = {},
+    aiProviders: List<AiProviderConfig> = listOf(AiProviderConfig.ON_DEVICE_GEMMA),
+    onAiProvidersChanged: (List<AiProviderConfig>) -> Unit = {},
 ) {
     var destination by remember {
         mutableStateOf(if (openActiveListening) AppDestination.LIVE else AppDestination.HOME)
     }
     var chatFilter by remember { mutableStateOf(ChatFilter.ALL) }
     var selectedSessionId by remember { mutableStateOf<String?>(null) }
+    var showAudioInputs by remember { mutableStateOf(false) }
     val selectedSession = sessions.firstOrNull { it.id == selectedSessionId }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -136,7 +148,9 @@ fun HuhApp(
         scope.launch { drawerState.close() }
     }
     val navigateBack: () -> Unit = {
-        if (destination == AppDestination.ADVANCED || destination == AppDestination.EXTERNAL_DEVICE) {
+        if (destination == AppDestination.ADVANCED || destination == AppDestination.EXTERNAL_DEVICE ||
+            destination == AppDestination.AI_SELECTION
+        ) {
             destination = AppDestination.PREFERENCES
         }
         else returnHome()
@@ -187,6 +201,11 @@ fun HuhApp(
                             }
                         }
                     },
+                    actions = {
+                        IconButton(onClick = { showAudioInputs = true }) {
+                            DeviceGlyph(Modifier.size(24.dp).semantics { contentDescription = "Choose audio device" })
+                        }
+                    },
                 )
             },
         ) { padding ->
@@ -209,6 +228,12 @@ fun HuhApp(
                         onClear = onClear,
                         onModelSelected = onModelSelected,
                         onProcess = onProcess,
+                        onEditTranscript = { transcript ->
+                            recorderState.sessionId?.let { onEditTranscript(it, transcript) }
+                        },
+                        onRenameSpeakers = { names ->
+                            recorderState.sessionId?.let { onRenameSpeakers(it, names) }
+                        },
                         showAppTitle = false,
                     )
                     AppDestination.LIVE -> ActiveListeningScreen(
@@ -223,6 +248,8 @@ fun HuhApp(
                         SessionDetailScreen(
                             session = session,
                             onProcess = { onProcessSession(session.id) },
+                            onEditTranscript = { transcript -> onEditTranscript(session.id, transcript) },
+                            onRenameSpeakers = { names -> onRenameSpeakers(session.id, names) },
                             onShare = { onShareSession(session) },
                             onDelete = {
                                 destination = AppDestination.HOME
@@ -239,6 +266,7 @@ fun HuhApp(
                         onModelSelected = onModelSelected,
                         onAdvanced = { destination = AppDestination.ADVANCED },
                         onExternalDevice = { destination = AppDestination.EXTERNAL_DEVICE },
+                        onAiSelection = { destination = AppDestination.AI_SELECTION },
                     )
                     AppDestination.ADVANCED -> AdvancedPreferencesScreen(
                         speechStartThresholdMs = speechStartThresholdMs,
@@ -261,9 +289,28 @@ fun HuhApp(
                         onDisconnect = onTurnOffActiveListening,
                         onForget = onForgetExternalDevice,
                     )
+                    AppDestination.AI_SELECTION -> AiSelectionScreen(
+                        providers = aiProviders,
+                        onProvidersChanged = onAiProvidersChanged,
+                    )
                 }
             }
         }
+    }
+    if (showAudioInputs) {
+        AudioInputDialog(
+            selected = selectedAudioInput,
+            xiaoConfigured = externalDeviceEndpoint.host.isNotBlank(),
+            onDismiss = { showAudioInputs = false },
+            onSelected = { choice ->
+                showAudioInputs = false
+                onAudioInputSelected(choice)
+            },
+            onAddDevice = {
+                showAudioInputs = false
+                destination = AppDestination.EXTERNAL_DEVICE
+            },
+        )
     }
 }
 
@@ -276,7 +323,22 @@ private val AppDestination.title: String
         AppDestination.PREFERENCES -> "Settings"
         AppDestination.ADVANCED -> "Advanced"
         AppDestination.EXTERNAL_DEVICE -> "External Device"
+        AppDestination.AI_SELECTION -> "AI Selection"
     }
+
+@Composable
+private fun DeviceGlyph(modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colors.onPrimary
+    Canvas(modifier) {
+        val stroke = size.minDimension * 0.09f
+        drawLine(color, Offset(size.width * 0.28f, size.height * 0.15f), Offset(size.width * 0.28f, size.height * 0.85f), stroke)
+        drawLine(color, Offset(size.width * 0.28f, size.height * 0.15f), Offset(size.width * 0.67f, size.height * 0.15f), stroke)
+        drawLine(color, Offset(size.width * 0.28f, size.height * 0.85f), Offset(size.width * 0.67f, size.height * 0.85f), stroke)
+        drawLine(color, Offset(size.width * 0.67f, size.height * 0.15f), Offset(size.width * 0.67f, size.height * 0.85f), stroke)
+        drawCircle(color, radius = stroke * 0.65f, center = Offset(size.width * 0.475f, size.height * 0.75f))
+        drawCircle(color, radius = stroke * 0.8f, center = Offset(size.width * 0.82f, size.height * 0.3f))
+    }
+}
 
 @Composable
 private fun ModeHome(
@@ -287,19 +349,16 @@ private fun ModeHome(
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth().weight(0.18f),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.Center,
         ) {
-            HuhMark(Modifier.height(64.dp).fillMaxWidth(0.2f), MaterialTheme.colors.primary)
-            Column(Modifier.padding(start = 12.dp)) {
-                Text("Never miss what was said.", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "Private by design · processed on this device",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
-                )
-            }
+            Text("Never miss what was said.", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Private by design · processed on this device",
+                fontSize = 13.sp,
+                color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
+            )
         }
         Spacer(Modifier.weight(0.03f))
         Card(
@@ -361,6 +420,10 @@ private fun ModeHome(
                         textAlign = TextAlign.End,
                     )
                 }
+                HuhMark(
+                    modifier = Modifier.size(112.dp).align(Alignment.Center),
+                    color = Color.White,
+                )
             }
         }
         Spacer(Modifier.weight(0.04f))
@@ -474,11 +537,21 @@ private fun NavigationDrawer(
 private fun SessionDetailScreen(
     session: SessionRecord,
     onProcess: () -> Unit,
+    onEditTranscript: (String) -> Unit,
+    onRenameSpeakers: (Map<String, String>) -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
     onRetryTranscription: () -> Unit,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var editTranscript by remember(session.id) { mutableStateOf(false) }
+    var nameSpeakers by remember(session.id) { mutableStateOf(false) }
+    val speakerIds = session.transcriptSegments.mapNotNull { it.speakerId }.distinct()
+    val canEdit = session.transcript.isNotBlank() && session.status !in setOf(
+        SessionStatus.TRANSCRIBING,
+        SessionStatus.QUEUED,
+        SessionStatus.PROCESSING,
+    )
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
     ) {
@@ -503,7 +576,16 @@ private fun SessionDetailScreen(
             fontSize = 13.sp,
             color = MaterialTheme.colors.primary,
         )
-        if (session.transcript.isNotBlank()) SessionContentCard("What Was Said", session.transcript)
+        if (session.transcript.isNotBlank()) {
+            SessionContentCard(
+                title = "What Was Said",
+                text = session.transcript,
+                actionLabel = if (canEdit) "Edit" else null,
+                onAction = if (canEdit) ({ editTranscript = true }) else null,
+                secondaryActionLabel = if (canEdit && speakerIds.isNotEmpty()) "Name speakers" else null,
+                onSecondaryAction = if (canEdit && speakerIds.isNotEmpty()) ({ nameSpeakers = true }) else null,
+            )
+        }
         session.processText?.takeIf(String::isNotBlank)?.let { SessionContentCard("What I Got From It", it) }
         if (session.tags.isNotEmpty()) {
             Text("Tags", modifier = Modifier.padding(top = 20.dp), fontWeight = FontWeight.Bold)
@@ -546,13 +628,56 @@ private fun SessionDetailScreen(
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
+    if (editTranscript) {
+        TranscriptEditorDialog(
+            transcript = session.transcript,
+            discardsInference = session.status == SessionStatus.PROCESSED,
+            onDismiss = { editTranscript = false },
+            onSave = { edited ->
+                editTranscript = false
+                onEditTranscript(edited)
+            },
+        )
+    }
+    if (nameSpeakers) {
+        SpeakerNamesDialog(
+            speakerIds = speakerIds,
+            discardsInference = session.status == SessionStatus.PROCESSED,
+            onDismiss = { nameSpeakers = false },
+            onSave = { names ->
+                nameSpeakers = false
+                onRenameSpeakers(names)
+            },
+        )
+    }
 }
 
 @Composable
-private fun SessionContentCard(title: String, text: String) {
+private fun SessionContentCard(
+    title: String,
+    text: String,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
+) {
     Card(modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
         Column(Modifier.padding(18.dp)) {
-            Text(title, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(title, fontWeight = FontWeight.Bold)
+                Row {
+                    if (secondaryActionLabel != null && onSecondaryAction != null) {
+                        TextButton(onClick = onSecondaryAction) { Text(secondaryActionLabel) }
+                    }
+                    if (actionLabel != null && onAction != null) {
+                        TextButton(onClick = onAction) { Text(actionLabel) }
+                    }
+                }
+            }
             Text(text, modifier = Modifier.padding(top = 8.dp))
         }
     }
@@ -673,6 +798,7 @@ private fun PreferencesScreen(
     onModelSelected: (TranscriptionModel) -> Unit,
     onAdvanced: () -> Unit,
     onExternalDevice: () -> Unit,
+    onAiSelection: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)
@@ -704,6 +830,15 @@ private fun PreferencesScreen(
         }
         Text(
             "Tune speech detection, conversation timing, and automatic cleanup.",
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Divider(Modifier.padding(vertical = 20.dp))
+        PreferenceHeading("AI")
+        OutlinedButton(onClick = onAiSelection, modifier = Modifier.fillMaxWidth()) {
+            Text("AI Selection")
+        }
+        Text(
+            "Choose and prioritize on-device, local-network, or optional third-party methods.",
             modifier = Modifier.padding(top = 8.dp),
         )
         Divider(Modifier.padding(vertical = 20.dp))
