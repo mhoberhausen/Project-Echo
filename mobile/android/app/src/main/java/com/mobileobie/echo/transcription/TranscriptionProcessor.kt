@@ -8,6 +8,9 @@ import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import com.mobileobie.echo.telemetry.Telemetry
+import com.mobileobie.echo.telemetry.TelemetryEvent
+import com.mobileobie.echo.telemetry.NoOpTelemetry
 
 class TranscriptionProcessor(
     private val repository: SessionRepository,
@@ -15,6 +18,7 @@ class TranscriptionProcessor(
     private val diarizer: SpeakerDiarizer,
     private val cleaner: TranscriptCleaner,
     private val cleanupPolicy: () -> AutomaticCaptureCleanupPolicy,
+    private val telemetry: Telemetry = NoOpTelemetry,
 ) {
     suspend fun process(sessionId: String): Boolean {
         repository.refresh()
@@ -37,6 +41,7 @@ class TranscriptionProcessor(
             }
             repository.saveTranscription(session.id, cleaned, original, diarized.segments)
             file.delete()
+            telemetry.record(TelemetryEvent.Processing(TelemetryEvent.Stage.TRANSCRIPTION, TelemetryEvent.Outcome.COMPLETED, durationBucket(audio.samples.size * 1_000L / audio.sampleRateHz)))
             true
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -50,6 +55,8 @@ class TranscriptionProcessor(
             }
         } catch (_: Throwable) {
             repository.updateStatus(session.id, SessionStatus.TRANSCRIPTION_FAILED)
+            telemetry.record(TelemetryEvent.Processing(TelemetryEvent.Stage.TRANSCRIPTION, TelemetryEvent.Outcome.FAILED, TelemetryEvent.DurationBucket.UNDER_30_SECONDS))
+            telemetry.recordSanitizedFailure("background_transcription_failed")
             false
         }
     }
@@ -60,6 +67,12 @@ class TranscriptionProcessor(
         check(bytes.size >= 2 && bytes.size % 2 == 0) { "The saved conversation audio is invalid." }
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
         return ShortArray(buffer.remaining()).also(buffer::get)
+    }
+
+    private fun durationBucket(durationMillis: Long): TelemetryEvent.DurationBucket = when {
+        durationMillis < 30_000 -> TelemetryEvent.DurationBucket.UNDER_30_SECONDS
+        durationMillis < 120_000 -> TelemetryEvent.DurationBucket.UNDER_2_MINUTES
+        else -> TelemetryEvent.DurationBucket.OVER_2_MINUTES
     }
 
     private companion object {

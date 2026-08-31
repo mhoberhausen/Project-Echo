@@ -203,16 +203,54 @@ bool TcpAudioTransport::handleCommand(uint8_t rawType, const uint8_t* payload,
     return true;
   }
   if (type == protocol::MessageType::kFetch) {
-    if (length != 20 || phase_ != Phase::kAwaitingFetch ||
-        !matchingStream(payload, length)) {
+    if (length != 20 ||
+        (phase_ != Phase::kIdle && phase_ != Phase::kAwaitingFetch)) {
       fail(17, "FETCH does not match a completed capture",
+           protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    if (!matchingStream(payload, length) && !selectRetainedCapture(payload, length)) {
+      fail(17, "FETCH does not match a retained capture",
            protocol::StopReason::kCaptureFailure);
       return false;
     }
     return beginFetch(readU32(payload + 16));
   }
+  if (type == protocol::MessageType::kListCaptures) {
+    if (length != 0 || (phase_ != Phase::kIdle && phase_ != Phase::kAwaitingFetch)) {
+      fail(19, "LIST_CAPTURES is not valid in the current state",
+           protocol::StopReason::kCaptureFailure);
+      return false;
+    }
+    return sendCaptureList();
+  }
   fail(16, "Unsupported inbound HUH1 message", protocol::StopReason::kCaptureFailure);
   return false;
+}
+
+bool TcpAudioTransport::selectRetainedCapture(const uint8_t* payload, size_t length) {
+  if (length < protocol::StreamUuid{}.size()) return false;
+  protocol::StreamUuid stream{};
+  memcpy(stream.data(), payload, stream.size());
+  if (!recorder_.selectFinalized(stream)) return false;
+  stream_ = std::make_unique<protocol::AudioStreamSession>(stream);
+  phase_ = Phase::kAwaitingFetch;
+  finalReason_ = protocol::StopReason::kDeviceReboot;
+  return true;
+}
+
+bool TcpAudioTransport::sendCaptureList() {
+  const auto captures = recorder_.finalizedCaptures();
+  if (captures.size() > UINT16_MAX) {
+    fail(20, "Too many retained captures", protocol::StopReason::kStorageFailure);
+    return false;
+  }
+  for (const auto& capture : captures) {
+    if (!protocol::encodeCaptureInfo(capture.stream, capture.audioBytes, message_) ||
+        !send(message_)) return false;
+  }
+  return protocol::encodeCaptureListEnd(static_cast<uint16_t>(captures.size()), message_) &&
+         send(message_);
 }
 
 bool TcpAudioTransport::startCapture(const protocol::StreamUuid& stream) {
@@ -427,7 +465,11 @@ size_t TcpAudioTransport::write(const uint8_t* bytes, size_t length) {
 }
 
 bool TcpAudioTransport::shouldPollImmediately() const {
-  return phase_ == Phase::kTransferring || !inbound_.empty();
+  // SD transfer can fill lwIP's send window in only a few 4 KiB chunks. A real
+  // delay in the Arduino loop lets the Wi-Fi/lwIP tasks process peer ACKs and
+  // reopen that window; taskYIELD alone only yields to equal-priority work and
+  // can leave a non-blocking transfer stuck in EAGAIN indefinitely.
+  return !inbound_.empty();
 }
 
 }  // namespace huh::transport

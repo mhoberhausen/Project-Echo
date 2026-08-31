@@ -8,6 +8,9 @@ import com.mobileobie.echo.interpretation.TranscriptInterpreter
 import com.mobileobie.echo.transcription.Transcriber
 import com.mobileobie.echo.transcription.TranscriptCleaner
 import com.mobileobie.echo.transcription.SpeakerDiarizer
+import com.mobileobie.echo.telemetry.Telemetry
+import com.mobileobie.echo.telemetry.NoOpTelemetry
+import com.mobileobie.echo.telemetry.TelemetryEvent
 
 class RecorderViewModelFactory(
     private val recorder: AudioRecorder,
@@ -16,6 +19,8 @@ class RecorderViewModelFactory(
     private val cleaner: TranscriptCleaner,
     private val interpreter: TranscriptInterpreter,
     private val sessionRepository: SessionRepository,
+    private val telemetry: Telemetry = NoOpTelemetry,
+    private val inferenceProvider: () -> TelemetryEvent.Provider = { TelemetryEvent.Provider.UNAVAILABLE },
     private val quietBoundaryMs: () -> Long = { 1_000L },
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
@@ -28,6 +33,8 @@ class RecorderViewModelFactory(
             cleaner,
             interpreter,
             sessionRepository,
+            telemetry,
+            inferenceProvider,
             quietBoundaryMs,
         ) as T
     }

@@ -11,7 +11,7 @@ void secureClear(char* bytes, size_t length) {
 }
 
 void SerialProvisioner::begin(bool hasCredentials) {
-  Serial.println("Commands: wifi status | wifi setup | wifi reset");
+  Serial.println("Commands: wifi status | wifi setup | wifi reset | captures");
   if (!hasCredentials) startSetup();
 }
 
@@ -54,6 +54,8 @@ ProvisioningEvent SerialProvisioner::finishLine() {
   if (state_ == State::kCommands) {
     if (strcmp(line_, "wifi status") == 0) {
       event = ProvisioningEvent::kStatusRequested;
+    } else if (strcmp(line_, "captures") == 0) {
+      event = ProvisioningEvent::kCapturesRequested;
     } else if (strcmp(line_, "wifi setup") == 0) {
       startSetup();
     } else if (strcmp(line_, "wifi reset") == 0) {
@@ -65,7 +67,7 @@ ProvisioningEvent SerialProvisioner::finishLine() {
         Serial.println("ERROR: NVS credentials could not be erased.");
       }
     } else if (lineLength_ > 0) {
-      Serial.println("Unknown command. Use: wifi status | wifi setup | wifi reset");
+      Serial.println("Unknown command. Use: wifi status | wifi setup | wifi reset | captures");
     }
   } else if (state_ == State::kSsid) {
     if (lineLength_ == 0 || lineLength_ > 32) {

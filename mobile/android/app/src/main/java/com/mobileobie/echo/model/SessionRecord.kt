@@ -6,6 +6,7 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 enum class SessionStatus(val displayName: String) {
+    CAPTURING("Saving capture…"),
     TRANSCRIBING("Turning speech into words…"),
     TRANSCRIPTION_FAILED("Transcription failed"),
     TRANSCRIBED("Transcript ready"),
@@ -125,6 +126,7 @@ object SessionMetadata {
         conversationEndSilenceMillis: Long = 0L,
         externalDevice: ExternalDeviceSessionMetadata? = null,
         transcriptSegments: List<TranscriptSegment> = emptyList(),
+        status: SessionStatus = SessionStatus.TRANSCRIBING,
         nowUtcMillis: Long = System.currentTimeMillis(),
         zoneId: ZoneId = ZoneId.systemDefault(),
         id: String = UUID.randomUUID().toString(),
@@ -136,7 +138,7 @@ object SessionMetadata {
             updatedAtUtcMillis = nowUtcMillis,
             durationMillis = durationMillis.coerceAtLeast(0),
             title = "Session · ${defaultTitleFormatter.format(localDate)}",
-            status = SessionStatus.TRANSCRIBING,
+            status = status,
             transcript = "",
             originalTranscript = "",
             processText = null,

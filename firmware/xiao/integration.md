@@ -319,13 +319,29 @@ Implemented TCP reference behavior:
    segment/stream boundary rather than hiding elapsed time.
 3. `STOP` or a 15-second control-lease expiry flushes and atomically finalizes the WAV,
    releases the microphone, and reports `STOP` before file transfer begins.
-4. `FETCH(capture_id, offset)` transfers offset-tagged `FILE_CHUNK` messages followed by
+4. `LIST_CAPTURES` returns zero or more `CAPTURE_INFO(capture_id, total_bytes)` messages and
+   a terminating `CAPTURE_LIST_END(count)`, including validated captures found after reboot.
+5. `FETCH(capture_id, offset)` transfers offset-tagged `FILE_CHUNK` messages followed by
    `FILE_END(total_bytes)`. `ACK(capture_id)` authorizes deletion from SD.
-5. A network failure never invalidates the finalized WAV. The current capture remains
-   fetchable from a requested offset while firmware remains powered. Boot-time manifests
-   and discovery of older retained captures remain future recovery work.
+6. A network failure never invalidates the finalized WAV. Retained captures remain
+   discoverable and fetchable by ID and offset after reconnect or reboot.
 
 ### BLE capture lease
+
+The provisional version-1 BLE service is implemented with these UUIDs:
+
+- Service: `7d2e0001-6f9b-4af7-ae8c-5e4f48554831`
+- Public identity (read): `7d2e0002-6f9b-4af7-ae8c-5e4f48554831`
+- Authenticated status (read/notify): `7d2e0003-6f9b-4af7-ae8c-5e4f48554831`
+- Authenticated command (write): `7d2e0004-6f9b-4af7-ae8c-5e4f48554831`
+- Authenticated response (read/notify): `7d2e0005-6f9b-4af7-ae8c-5e4f48554831`
+
+The identity value is `v1|device_id|model|firmware_version`. Commands use the bounded
+`HHC1 | request_id_u32_le | verb` envelope. Pairing requires bonding, Secure Connections,
+MITM protection, and a boot-generated six-digit passkey shown only over USB serial.
+`STATUS`, `PAUSE`, and `STOP` are wired; `START` and `RESUME` currently return
+`TCP_START_REQUIRED` because stream ownership and the renewable control lease must be
+established with the companion app before microphone capture starts.
 
 Treat active listening as a renewable control lease rather than a command that remains active
 indefinitely. The TCP reference controller sends `HEARTBEAT`; the future authenticated

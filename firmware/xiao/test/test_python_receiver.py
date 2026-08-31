@@ -3,10 +3,12 @@ import io
 import socket
 import struct
 import sys
+import tempfile
 import threading
 import time
 import unittest
 import uuid
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -34,6 +36,43 @@ def string(value):
 
 
 class ReceiverProtocolTest(unittest.TestCase):
+    def test_lists_retained_captures(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        capture_id = uuid.uuid4()
+        observed = {}
+
+        def serve():
+            client, _ = listener.accept()
+            with client, client.makefile("rb", buffering=0) as stream:
+                hello = b"".join((
+                    string("echo-test"), string("Huh? Puck"), string("Seeed Studio"),
+                    string("XIAO ESP32S3 Sense"), string("0.1.0"),
+                    struct.pack("!IBBH", 16_000, 1, 16, 320),
+                ))
+                client.sendall(envelope(receiver.MessageType.HELLO, hello))
+                observed["request"] = receiver.read_message(stream).type
+                client.sendall(envelope(
+                    receiver.MessageType.CAPTURE_INFO,
+                    capture_id.bytes + struct.pack("!I", 12_800),
+                ))
+                client.sendall(envelope(receiver.MessageType.CAPTURE_LIST_END, struct.pack("!H", 1)))
+
+        thread = threading.Thread(target=serve)
+        thread.start()
+        code, result = receiver.list_retained_captures(SimpleNamespace(
+            host="127.0.0.1", port=port, connect_timeout=2,
+            read_timeout=2, expected_device_id="echo-test",
+        ))
+        thread.join(2)
+        listener.close()
+        self.assertEqual(0, code)
+        self.assertEqual(receiver.MessageType.LIST_CAPTURES, observed["request"])
+        self.assertEqual(str(capture_id), result["retained_captures"][0]["capture_id"])
+        self.assertEqual(12_800, result["retained_captures"][0]["audio_bytes"])
+
     def test_decodes_canonical_hello(self):
         payload = b"".join(
             (
@@ -211,6 +250,137 @@ class ReceiverProtocolTest(unittest.TestCase):
         self.assertEqual(len(pcm), summary["audio_bytes"])
         self.assertEqual(receiver.MessageType.FETCH, captured["fetch"])
         self.assertEqual(receiver.MessageType.ACK, captured["ack"])
+
+    def test_reference_controller_resumes_finalized_capture_from_offset(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        stream_id = uuid.uuid4()
+        resume_offset = 640
+        remaining_pcm = bytes((index % 251 for index in range(640)))
+        captured = {}
+        hello_payload = b"".join(
+            (
+                string("echo-test"), string("Huh? Puck"), string("Seeed Studio"),
+                string("XIAO ESP32S3 Sense"), string("test"),
+                struct.pack("!IBBH", 16_000, 1, 16, 320),
+            )
+        )
+
+        def firmware():
+            client, _ = listener.accept()
+            with client, client.makefile("rb") as stream:
+                client.sendall(envelope(receiver.MessageType.HELLO, hello_payload))
+                fetch = receiver.read_message(stream)
+                captured["fetch"] = fetch
+                client.sendall(
+                    envelope(
+                        receiver.MessageType.FILE_CHUNK,
+                        stream_id.bytes + struct.pack("!I", resume_offset) + remaining_pcm,
+                    )
+                )
+                client.sendall(
+                    envelope(
+                        receiver.MessageType.FILE_END,
+                        stream_id.bytes + struct.pack("!I", resume_offset + len(remaining_pcm)),
+                    )
+                )
+                captured["ack"] = receiver.read_message(stream)
+
+        server = threading.Thread(target=firmware, daemon=True)
+        server.start()
+        temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_directory.cleanup)
+        partial_pcm = Path(temporary_directory.name) / "capture.partial"
+        partial_pcm.write_bytes(bytes(resume_offset))
+        args = receiver.build_parser().parse_args(
+            [
+                "127.0.0.1", "--port", str(port), "--resume-stream-id", str(stream_id),
+                "--resume-offset", str(resume_offset), "--read-timeout", "2", "--json",
+                "--partial-pcm", str(partial_pcm),
+            ]
+        )
+        exit_code, summary = receiver.run_receiver(args)
+        server.join(timeout=1)
+        listener.close()
+
+        self.assertEqual(0, exit_code, summary)
+        fetch = captured["fetch"]
+        self.assertEqual(receiver.MessageType.FETCH, fetch.type)
+        self.assertEqual(stream_id.bytes + struct.pack("!I", resume_offset), fetch.payload)
+        self.assertEqual(receiver.MessageType.ACK, captured["ack"].type)
+        self.assertEqual(1280, summary["audio_bytes"])
+
+    def test_reference_controller_reconnects_and_resumes_partial_transfer(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(2)
+        port = listener.getsockname()[1]
+        pcm = bytes((index % 251 for index in range(1280)))
+        captured = {}
+        hello_payload = b"".join(
+            (
+                string("echo-test"), string("Huh? Puck"), string("Seeed Studio"),
+                string("XIAO ESP32S3 Sense"), string("test"),
+                struct.pack("!IBBH", 16_000, 1, 16, 320),
+            )
+        )
+
+        def firmware():
+            first, _ = listener.accept()
+            with first, first.makefile("rb") as stream:
+                first.sendall(envelope(receiver.MessageType.HELLO, hello_payload))
+                start = receiver.read_message(stream)
+                captured["stream"] = start.payload
+                first.sendall(envelope(receiver.MessageType.START, start.payload))
+                while receiver.read_message(stream).type is not receiver.MessageType.STOP:
+                    pass
+                first.sendall(envelope(receiver.MessageType.STOP, start.payload + b"\x01"))
+                self.assertEqual(receiver.MessageType.FETCH, receiver.read_message(stream).type)
+                first.sendall(
+                    envelope(
+                        receiver.MessageType.FILE_CHUNK,
+                        start.payload + struct.pack("!I", 0) + pcm[:640],
+                    )
+                )
+
+            second, _ = listener.accept()
+            with second, second.makefile("rb") as stream:
+                second.sendall(envelope(receiver.MessageType.HELLO, hello_payload))
+                fetch = receiver.read_message(stream)
+                captured["resume_fetch"] = fetch.payload
+                second.sendall(
+                    envelope(
+                        receiver.MessageType.FILE_CHUNK,
+                        start.payload + struct.pack("!I", 640) + pcm[640:],
+                    )
+                )
+                second.sendall(
+                    envelope(receiver.MessageType.FILE_END, start.payload + struct.pack("!I", 1280))
+                )
+                captured["ack"] = receiver.read_message(stream).type
+
+        server = threading.Thread(target=firmware, daemon=True)
+        server.start()
+        temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_directory.cleanup)
+        args = receiver.build_parser().parse_args(
+            [
+                "127.0.0.1", "--port", str(port), "--duration", "0.05",
+                "--heartbeat-interval", "0.01", "--read-timeout", "1",
+                "--reconnect-base-delay", "0.01", "--transfer-directory",
+                temporary_directory.name, "--json",
+            ]
+        )
+        exit_code, summary = receiver.run_receiver(args)
+        server.join(timeout=1)
+        listener.close()
+
+        self.assertEqual(0, exit_code, summary)
+        self.assertEqual(captured["stream"] + struct.pack("!I", 640), captured["resume_fetch"])
+        self.assertEqual(receiver.MessageType.ACK, captured["ack"])
+        self.assertEqual(1, summary["reconnects"])
 
 
 if __name__ == "__main__":

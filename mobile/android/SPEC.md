@@ -33,7 +33,9 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 - [x] Structured response parsing for summary, intent, key points, and action items
 - [x] Resilient parsing when Gemma adds metadata or omits an empty `action_items` array
 - [x] Processed-result UI, including transcript disclosure and empty action-item handling
-- [x] No analytics, account, cloud transcription, or cloud LLM path; `INTERNET` and Android
+- [x] No account, cloud transcription, or cloud LLM path; Firebase crash diagnostics and
+  anonymous usage insights are independent, explicit opt-ins with a content-free event boundary.
+  `INTERNET` and Android
   17 local-network access are limited to user-configured private-LAN device/AI endpoints
 - [x] Persist an audio-input picker for the phone or configured Huh? Puck, with an honest
   Bluetooth setup placeholder until Bluetooth capture is implemented
@@ -51,7 +53,9 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 - [ ] Add live partial transcript display. Listen Now and Keep an Ear Out already transcribe
   quiet-delimited chunks serially while recording continues, using the persisted 1,000 ms
   default quiet boundary. They fall back to a full post-capture pass if VAD finds no chunks,
-  a chunk fails, or the bounded backlog fills. Full-audio diarization remains post-capture.
+  Whisper disagrees with VAD, a chunk fails, or the bounded backlog fills. Active captures
+  are persisted before incremental work completes and recover through the durable local queue.
+  Full-audio diarization remains post-capture.
 - [ ] Run and document the complete workflow in Airplane Mode
 - [ ] Run and document a two-minute recording stability test
 - [ ] Exercise all specified model, transcription, and malformed-JSON error paths

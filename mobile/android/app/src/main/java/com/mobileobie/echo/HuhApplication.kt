@@ -11,6 +11,8 @@ import com.mobileobie.echo.transcription.SpeakerDiarizerProvider
 import com.mobileobie.echo.active.ActiveListeningSettings
 import com.mobileobie.echo.external.ExternalDeviceSettings
 import com.mobileobie.echo.settings.SelectionSettings
+import com.mobileobie.echo.settings.TelemetrySettings
+import com.mobileobie.echo.telemetry.FirebaseTelemetry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,12 +38,15 @@ class AppContainer(application: Application) {
     val activeListeningSettings = ActiveListeningSettings(application)
     val externalDeviceSettings = ExternalDeviceSettings(application)
     val selectionSettings = SelectionSettings(application)
+    val telemetrySettings = TelemetrySettings(application)
+    val telemetry = FirebaseTelemetry.create(application, telemetrySettings.consent)
     val transcriptionProcessor = TranscriptionProcessor(
         sessionRepository,
         transcriber,
         diarizer,
         cleaner,
         activeListeningSettings::cleanupPolicy,
+        telemetry,
     )
     val transcriptionQueue = TranscriptionQueue(application, scope, sessionRepository)
 }

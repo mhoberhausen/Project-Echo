@@ -77,9 +77,10 @@ import com.mobileobie.echo.active.ActiveListeningSource
 import com.mobileobie.echo.external.ExternalDeviceEndpoint
 import com.mobileobie.echo.settings.AiProviderConfig
 import com.mobileobie.echo.settings.AudioInputChoice
+import com.mobileobie.echo.settings.TelemetryConsent
 import kotlinx.coroutines.launch
 
-private enum class AppDestination { HOME, MANUAL, LIVE, SESSION, PREFERENCES, ADVANCED, EXTERNAL_DEVICE, AI_SELECTION }
+private enum class AppDestination { HOME, MANUAL, LIVE, SESSION, PREFERENCES, ADVANCED, EXTERNAL_DEVICE, AI_SELECTION, TELEMETRY }
 private enum class ChatFilter(val label: String) { ALL("All"), PENDING("Unprocessed"), PROCESSED("Processed") }
 
 @Composable
@@ -129,6 +130,8 @@ fun HuhApp(
     onAudioInputSelected: (AudioInputChoice) -> Unit = {},
     aiProviders: List<AiProviderConfig> = listOf(AiProviderConfig.ON_DEVICE_GEMMA),
     onAiProvidersChanged: (List<AiProviderConfig>) -> Unit = {},
+    telemetryConsent: TelemetryConsent = TelemetryConsent(),
+    onTelemetryConsentChanged: (TelemetryConsent) -> Unit = {},
 ) {
     var destination by remember {
         mutableStateOf(if (openActiveListening) AppDestination.LIVE else AppDestination.HOME)
@@ -153,7 +156,7 @@ fun HuhApp(
     }
     val navigateBack: () -> Unit = {
         if (destination == AppDestination.ADVANCED || destination == AppDestination.EXTERNAL_DEVICE ||
-            destination == AppDestination.AI_SELECTION
+            destination == AppDestination.AI_SELECTION || destination == AppDestination.TELEMETRY
         ) {
             destination = AppDestination.PREFERENCES
         }
@@ -272,6 +275,7 @@ fun HuhApp(
                         onAdvanced = { destination = AppDestination.ADVANCED },
                         onExternalDevice = { destination = AppDestination.EXTERNAL_DEVICE },
                         onAiSelection = { destination = AppDestination.AI_SELECTION },
+                        onTelemetry = { destination = AppDestination.TELEMETRY },
                     )
                     AppDestination.ADVANCED -> AdvancedPreferencesScreen(
                         speechStartThresholdMs = speechStartThresholdMs,
@@ -299,6 +303,10 @@ fun HuhApp(
                     AppDestination.AI_SELECTION -> AiSelectionScreen(
                         providers = aiProviders,
                         onProvidersChanged = onAiProvidersChanged,
+                    )
+                    AppDestination.TELEMETRY -> TelemetryPreferencesScreen(
+                        consent = telemetryConsent,
+                        onConsentChanged = onTelemetryConsentChanged,
                     )
                 }
             }
@@ -331,6 +339,7 @@ private val AppDestination.title: String
         AppDestination.ADVANCED -> "Advanced"
         AppDestination.EXTERNAL_DEVICE -> "External Device"
         AppDestination.AI_SELECTION -> "AI Selection"
+        AppDestination.TELEMETRY -> "Help improve Huh?"
     }
 
 @Composable
@@ -907,6 +916,7 @@ private fun PreferencesScreen(
     onAdvanced: () -> Unit,
     onExternalDevice: () -> Unit,
     onAiSelection: () -> Unit,
+    onTelemetry: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)
@@ -963,7 +973,58 @@ private fun PreferencesScreen(
         Text("Processed on this device", fontWeight = FontWeight.Bold)
         Text("Recording, transcription, and interpretation stay local.", modifier = Modifier.padding(top = 6.dp))
         Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = onTelemetry, modifier = Modifier.fillMaxWidth()) {
+            Text("Help improve Huh?")
+        }
+        Text("Choose whether to share anonymous diagnostics or usage insights.", modifier = Modifier.padding(top = 8.dp))
+        Spacer(Modifier.height(12.dp))
         Text("Active Listening preferences are saved on this device. Appearance currently resets when the app closes.")
+    }
+}
+
+@Composable
+private fun TelemetryPreferencesScreen(
+    consent: TelemetryConsent,
+    onConsentChanged: (TelemetryConsent) -> Unit,
+) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
+        Text("Optional and off by default", fontWeight = FontWeight.Bold)
+        Text(
+            "Huh? works the same without sharing anything. You can change these choices at any time.",
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Divider(Modifier.padding(vertical = 20.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Share crash reports", fontWeight = FontWeight.Bold)
+                Text("Send technical crash and app-not-responding diagnostics to help fix stability issues.")
+            }
+            Switch(
+                checked = consent.crashReportsEnabled,
+                onCheckedChange = { onConsentChanged(consent.copy(crashReportsEnabled = it)) },
+            )
+        }
+        Divider(Modifier.padding(vertical = 20.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Share anonymous usage insights", fontWeight = FontWeight.Bold)
+                Text("Share coarse feature outcomes and duration ranges so we can improve the app.")
+            }
+            Switch(
+                checked = consent.usageInsightsEnabled,
+                onCheckedChange = { onConsentChanged(consent.copy(usageInsightsEnabled = it)) },
+            )
+        }
+        Divider(Modifier.padding(vertical = 20.dp))
+        PreferenceHeading("Never shared")
+        Text(
+            "Audio, transcripts, timestamps, speaker names, session titles, inferred content, prompts, " +
+                "AI responses, device names, local addresses, credentials, and settings values stay on this device.",
+        )
+        Text(
+            "We do not create accounts, assign user IDs, or use advertising personalization.",
+            modifier = Modifier.padding(top = 12.dp),
+        )
     }
 }
 

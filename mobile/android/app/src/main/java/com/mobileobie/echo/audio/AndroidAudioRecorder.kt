@@ -11,9 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import com.mobileobie.echo.vad.HeuristicVoiceActivityDetector
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 class AndroidAudioRecorder(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -21,7 +18,7 @@ class AndroidAudioRecorder(
     private val lock = Any()
     private var audioRecord: AudioRecord? = null
     private var captureJob: Job? = null
-    private var pcmBytes = ByteArrayOutputStream()
+    private var pcmSamples = PcmSampleBuffer()
 
     @SuppressLint("MissingPermission")
     override suspend fun start() = startInternal(null, null)
@@ -56,7 +53,7 @@ class AndroidAudioRecorder(
             "Could not initialize the microphone."
         }
 
-        synchronized(lock) { pcmBytes = ByteArrayOutputStream() }
+        synchronized(lock) { pcmSamples = PcmSampleBuffer() }
         audioRecord = recorder
         recorder.startRecording()
         val chunker = quietBoundaryMs?.let {
@@ -72,10 +69,8 @@ class AndroidAudioRecorder(
             while (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 val count = recorder.read(buffer, 0, buffer.size)
                 if (count > 0) {
-                    val frame = buffer.copyOf(count)
-                    val bytes = ByteBuffer.allocate(count * 2).order(ByteOrder.LITTLE_ENDIAN)
-                    frame.forEach(bytes::putShort)
-                    synchronized(lock) { pcmBytes.write(bytes.array()) }
+                    val frame = if (count == buffer.size) buffer else buffer.copyOf(count)
+                    synchronized(lock) { pcmSamples.write(frame, count) }
                     chunker?.append(frame, chunkVad!!.process(frame))?.let { onChunk?.invoke(it) }
                 }
             }
@@ -91,13 +86,7 @@ class AndroidAudioRecorder(
         recorder.release()
         audioRecord = null
 
-        val bytes = synchronized(lock) { pcmBytes.toByteArray() }
-        val shorts = ShortArray(bytes.size / 2)
-        ByteBuffer.wrap(bytes)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .asShortBuffer()
-            .get(shorts)
-        return RecordedAudio(shorts, SAMPLE_RATE_HZ)
+        return RecordedAudio(synchronized(lock) { pcmSamples.take() }, SAMPLE_RATE_HZ)
     }
 
     override fun release() {

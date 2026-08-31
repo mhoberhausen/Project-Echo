@@ -282,9 +282,22 @@ HUH1 TCP server: 8765
   `FILE_CHUNK`, `FILE_END`, and deletion-authorizing `ACK` messages.
 - [x] Add a Python reference controller and an end-to-end socket contract test.
 
-- [ ] Define a Huh? device-information/control BLE service with versioned characteristics.
-- [ ] Advertise enough identity for Android's explicit companion-device association flow.
-- [ ] Support commands for status, configure network, start, pause, resume, and turn off.
+### Hardware validation run (2026-08-29)
+
+- [x] Android-parity Python client completed an explicit-stop capture and verified
+  `START`/heartbeat/`STOP`/`FETCH`/`FILE_CHUNK`/`FILE_END`/`ACK` on the connected XIAO.
+- [x] Heartbeat-drop test finalized a recording after the 15-second control lease expired,
+  transferred it, and acknowledged SD deletion with `STOP(CONTROL_LEASE_EXPIRED)`.
+- [x] Injected TCP disconnect during transfer reconnected and resumed from the exact local
+  partial-file offset before acknowledging deletion.
+- [ ] Repeat the same flow through the Android app on the Pixel 8 Pro, including VAD and
+  session persistence; this remains the next integration gate.
+
+- [x] Define and advertise a versioned Huh? device-information/control BLE service.
+- [x] Advertise the versioned service UUID, display name, and public stable application identity needed for explicit companion-device selection.
+- [ ] Support all commands for status, configure network, start, pause, resume, and turn off.
+  `STATUS`, `PAUSE`, and `STOP` are wired; `START`/`RESUME` explicitly require the TCP
+  stream handshake, and BLE Wi-Fi configuration remains pending.
 - [ ] Require an authenticated BLE `KEEP_ALIVE` every 5 seconds while listening and expire
   the capture lease after 15 seconds without renewal.
 - [ ] On BLE disconnect or capture-lease expiry, stop PDM capture and TCP audio, close the
@@ -292,11 +305,18 @@ HUH1 TCP server: 8765
 - [ ] Keep the BLE capture lease distinct from the HUH1 TCP heartbeat; neither transport
   alone may silently renew the other's authorization/liveness contract.
 - [ ] Report microphone, storage, queue-overrun, Wi-Fi, and authentication errors.
-- [ ] Keep the stable application device ID separate from the BLE MAC address.
+- [x] Keep the stable application device ID separate from the BLE MAC address.
 - [ ] Store pairing material in protected nonvolatile storage where feasible.
 - [ ] Require authenticated selection before accepting TCP audio/control peers.
 - [ ] Implement a physical or otherwise explicit reset/forget-pairing path.
 - [ ] Do not automatically begin capture merely because an unknown phone is nearby.
+
+### BLE hardware validation run (2026-08-29)
+
+- [x] Windows discovered `Huh? XIAO` advertising the version-1 service UUID.
+- [x] Windows read the public identity containing the stable device ID, model, and firmware version.
+- [x] An unpaired Windows client was rejected when reading the authenticated status characteristic.
+- [x] BLE advertising and the existing Wi-Fi HUH1 capture-list service operated concurrently.
 
 Success: Android can associate one device, reconnect to it, forget it, and associate a
 second device without accepting audio from an unselected peer.
@@ -362,3 +382,11 @@ blocking microphone capture or silently losing/reordering audio.
 
 Gemma interpretation remains entirely on Android and is never invoked or represented by
 the firmware protocol.
+
+## Robustness and future hardware-control work
+
+- [x] Scan `/captures` at boot and expose a `captures` serial command so finalized WAVs retained across reset are visible and recoverable.
+- [x] Add a bounded, transport-neutral `HHC1` control-message parser for future BLE/control adapters (status/start/pause/resume/stop); no unauthenticated mutating transport is enabled yet.
+- [ ] Bind the control protocol to authenticated BLE pairing and Android controls.
+- [x] Add protocol-level `LIST_CAPTURES`/`CAPTURE_INFO` recovery and ID/offset transfer for files retained across a device reboot.
+- [x] Validate finalized WAV headers before advertising them and repair aligned `.part` captures after interrupted power at boot.

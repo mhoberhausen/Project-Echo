@@ -11,6 +11,7 @@ interface SessionRepository {
 
     suspend fun refresh()
     suspend fun create(session: SessionRecord)
+    suspend fun updateCapturedSession(session: SessionRecord)
     suspend fun updateStatus(id: String, status: SessionStatus)
     suspend fun saveProcessed(id: String, message: ProcessedMessage)
     suspend fun updateTitle(id: String, title: String)

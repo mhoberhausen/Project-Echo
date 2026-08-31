@@ -30,8 +30,10 @@ class IncrementalTranscriptionWorker(
                     transcripts += transcriber.transcribe(chunk.audio, model).offsetBy(chunk.startMillis)
                     onDiagnostic("Chunk complete; total=${transcripts.size}")
                 } catch (_: NoSpeechDetectedException) {
-                    // VAD and Whisper can disagree; omitting one empty chunk is safe.
-                    onDiagnostic("Whisper found no speech in one VAD-positive chunk")
+                    // A VAD/Whisper disagreement can otherwise silently omit spoken words.
+                    failed = true
+                    onDiagnostic("Whisper found no speech in one VAD-positive chunk; falling back to full audio")
+                    channel.cancel()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Throwable) {

@@ -20,6 +20,8 @@ import com.mobileobie.echo.audio.PcmSourceEvent
 import com.mobileobie.echo.audio.AudioRouteChangedException
 import com.mobileobie.echo.audio.SilenceChunkAccumulator
 import com.mobileobie.echo.model.SessionMetadata
+import com.mobileobie.echo.model.SessionRecord
+import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.model.TranscriptionModel
 import com.mobileobie.echo.model.ExternalDeviceSessionMetadata
@@ -72,6 +74,7 @@ class ActiveListeningService : Service() {
     private var conversationChunker: SilenceChunkAccumulator? = null
     private var conversationTranscription: IncrementalTranscriptionWorker? = null
     private var conversationTranscriptionModel: TranscriptionModel? = null
+    private var durableCapture: DurableCapture? = null
     private var captureStartedAtUtcMillis: Long? = null
     private var vadFramesSinceLog = 0
     private var vadSpeechFramesSinceLog = 0
@@ -283,9 +286,13 @@ class ActiveListeningService : Service() {
                     externalMetadata,
                     finishIncrementalTranscription(incremental),
                     incremental?.model,
+                    takeDurableCapture(),
                 )
             }
-        } else cancelIncrementalTranscription()
+        } else {
+            cancelIncrementalTranscription()
+            cancelDurableCapture()
+        }
     }
 
     private fun onAudioFrame(frame: ShortArray) {
@@ -299,7 +306,8 @@ class ActiveListeningService : Service() {
         val update = detector.process(activity, StreamingAudioCapture.FRAME_DURATION_MS)
         if (hadWriter) {
             writer?.write(frame)
-            conversationChunker?.append(frame, activity)?.let { conversationTranscription?.offer(it) }
+            val chunkActivity = if (vad.diagnostics.rawSpeech) VoiceActivity.SPEECH else VoiceActivity.SILENCE
+            conversationChunker?.append(frame, chunkActivity)?.let { conversationTranscription?.offer(it) }
         }
 
         if (update.stateChanged) {
@@ -316,6 +324,7 @@ class ActiveListeningService : Service() {
                 runCatching {
                     val initialAudio = preRoll.snapshot()
                     writer = PcmConversationWriter.create(filesDir).also { it.write(initialAudio) }
+                    startDurableCapture(requireNotNull(writer))
                     startIncrementalTranscription(initialAudio)
                     preRoll.clear()
                     captureStartedAtUtcMillis = System.currentTimeMillis()
@@ -348,9 +357,13 @@ class ActiveListeningService : Service() {
                     externalMetadata,
                     finishIncrementalTranscription(incremental),
                     incremental?.model,
+                    takeDurableCapture(),
                 )
             }
-        } else cancelIncrementalTranscription()
+        } else {
+            cancelIncrementalTranscription()
+            cancelDurableCapture()
+        }
     }
 
     private suspend fun persistAndQueue(
@@ -359,6 +372,7 @@ class ActiveListeningService : Service() {
         externalMetadata: ExternalDeviceSessionMetadata?,
         precomputedTranscript: TimestampedTranscript? = null,
         transcriptionModel: TranscriptionModel? = null,
+        durableCapture: DurableCapture? = null,
     ) = persistAndQueue(
         audio = audio,
         speechDurationMillis = timingUpdate.cumulativeSpeechDurationMs,
@@ -368,6 +382,7 @@ class ActiveListeningService : Service() {
         externalMetadata = externalMetadata,
         precomputedTranscript = precomputedTranscript,
         transcriptionModel = transcriptionModel,
+        durableCapture = durableCapture,
     )
 
     private suspend fun persistAndQueue(
@@ -379,9 +394,25 @@ class ActiveListeningService : Service() {
         externalMetadata: ExternalDeviceSessionMetadata?,
         precomputedTranscript: TimestampedTranscript? = null,
         transcriptionModel: TranscriptionModel? = null,
+        durableCapture: DurableCapture? = null,
     ) {
         runCatching {
-            val session = SessionMetadata.createTranscribing(
+            val durableSession = durableCapture?.let { durable ->
+                durable.created.join()
+                val finalized = durable.session.copy(
+                    status = SessionStatus.TRANSCRIBING,
+                    durationMillis = audio.durationMillis,
+                    speechDurationMillis = speechDurationMillis,
+                    speechSegmentCount = speechSegmentCount,
+                    longestInternalSilenceMillis = longestInternalSilenceMillis,
+                    conversationEndSilenceMillis = conversationEndSilenceMillis,
+                    externalDevice = externalMetadata,
+                    transcriptSegments = precomputedTranscript?.segments.orEmpty(),
+                )
+                container.sessionRepository.updateCapturedSession(finalized)
+                finalized
+            }
+            val session = durableSession ?: SessionMetadata.createTranscribing(
                 durationMillis = audio.durationMillis,
                 transcriptionModel = transcriptionModel
                     ?: container.activeListeningSettings.transcriptionModel,
@@ -422,8 +453,12 @@ class ActiveListeningService : Service() {
                 currentExternalMetadata(),
                 finishIncrementalTranscription(incremental),
                 incremental?.model,
+                takeDurableCapture(),
             )
-        } else cancelIncrementalTranscription()
+        } else {
+            cancelIncrementalTranscription()
+            cancelDurableCapture()
+        }
         setState(ActiveListeningState.PAUSED)
     }
 
@@ -446,8 +481,12 @@ class ActiveListeningService : Service() {
                 currentExternalMetadata(),
                 finishIncrementalTranscription(incremental),
                 incremental?.model,
+                takeDurableCapture(),
             )
-        } else cancelIncrementalTranscription()
+        } else {
+            cancelIncrementalTranscription()
+            cancelDurableCapture()
+        }
         ActiveListeningRuntime.update(ActiveListeningState.OFF)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -482,6 +521,32 @@ class ActiveListeningService : Service() {
         writer = null
         captureStartedAtUtcMillis = null
         cancelIncrementalTranscription()
+        cancelDurableCapture()
+    }
+
+    private fun startDurableCapture(writer: PcmConversationWriter) {
+        cancelDurableCapture()
+        val session = SessionMetadata.createTranscribing(
+            durationMillis = 0,
+            transcriptionModel = container.activeListeningSettings.transcriptionModel,
+            source = audioCapture.descriptor.sessionSource,
+            audioPath = writer.file.absolutePath,
+            externalDevice = currentExternalMetadata(),
+            status = SessionStatus.CAPTURING,
+        )
+        durableCapture = DurableCapture(session, container.scope.launch {
+            container.sessionRepository.create(session)
+        })
+    }
+
+    private fun takeDurableCapture(): DurableCapture? = durableCapture.also { durableCapture = null }
+
+    private fun cancelDurableCapture() {
+        val capture = takeDurableCapture() ?: return
+        container.scope.launch {
+            capture.created.join()
+            container.sessionRepository.delete(capture.session.id)
+        }
     }
 
     private fun startIncrementalTranscription(initialAudio: ShortArray) {
@@ -668,12 +733,15 @@ private data class ActiveIncrementalTranscription(
     val model: TranscriptionModel,
 )
 
+private data class DurableCapture(val session: SessionRecord, val created: Job)
+
 private data class CompletedPcm(val file: File, val durationMillis: Long)
 
 private class PcmConversationWriter private constructor(
     private val partialFile: File,
     private val output: BufferedOutputStream,
 ) {
+    val file: File get() = partialFile
     private var samplesWritten = 0L
 
     fun write(samples: ShortArray) {
@@ -687,10 +755,8 @@ private class PcmConversationWriter private constructor(
     fun finish(): CompletedPcm {
         output.flush()
         output.close()
-        val completed = File(partialFile.parentFile, partialFile.name.removeSuffix(".partial") + ".pcm")
-        check(partialFile.renameTo(completed)) { "The conversation audio could not be finalized." }
         return CompletedPcm(
-            completed,
+            partialFile,
             samplesWritten * 1_000L / StreamingAudioCapture.SAMPLE_RATE_HZ,
         )
     }
@@ -704,7 +770,7 @@ private class PcmConversationWriter private constructor(
         fun create(filesDir: File): PcmConversationWriter {
             val directory = File(filesDir, "active_audio").apply { mkdirs() }
             check(directory.isDirectory) { "Audio storage is unavailable." }
-            val file = File.createTempFile("conversation_", ".partial", directory)
+            val file = File.createTempFile("conversation_", ".pcm", directory)
             return PcmConversationWriter(file, BufferedOutputStream(FileOutputStream(file)))
         }
     }

@@ -7,9 +7,11 @@ import argparse
 import dataclasses
 import enum
 import json
+import os
 import socket
 import struct
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -40,6 +42,9 @@ class MessageType(enum.IntEnum):
     FETCH = 8
     FILE_CHUNK = 9
     FILE_END = 10
+    LIST_CAPTURES = 11
+    CAPTURE_INFO = 12
+    CAPTURE_LIST_END = 13
 
 
 class ProtocolError(RuntimeError):
@@ -73,6 +78,7 @@ class Hello:
 @dataclasses.dataclass
 class Metrics:
     connected_at: float
+    capture_id: str | None = None
     first_audio_at: float | None = None
     last_audio_at: float | None = None
     messages: int = 0
@@ -95,6 +101,7 @@ class Metrics:
         else:
             audio_seconds = max(0.001, now - self.first_audio_at)
         return {
+            "capture_id": self.capture_id,
             "device_id": hello.device_id if hello else None,
             "firmware_version": hello.firmware_version if hello else None,
             "connection_seconds": round(connection_seconds, 3),
@@ -245,6 +252,47 @@ def encode_message(message_type: MessageType, payload: bytes) -> bytes:
     return HEADER.pack(MAGIC, PROTOCOL_VERSION, int(message_type), 0, len(payload)) + payload
 
 
+def list_retained_captures(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    captures: list[dict[str, object]] = []
+    with socket.create_connection((args.host, args.port), args.connect_timeout) as client:
+        client.settimeout(args.read_timeout)
+        with client.makefile("rb", buffering=0) as stream:
+            hello_message = read_message(stream)
+            if hello_message is None or hello_message.type is not MessageType.HELLO:
+                raise ProtocolError("Device did not begin with HELLO.")
+            hello = decode_hello(hello_message.payload)
+            validate_hello(hello, args.expected_device_id)
+            client.sendall(encode_message(MessageType.LIST_CAPTURES, b""))
+            while True:
+                message = read_message(stream)
+                if message is None:
+                    raise ProtocolError("Connection ended before CAPTURE_LIST_END.")
+                if message.type is MessageType.CAPTURE_INFO:
+                    if len(message.payload) != 20:
+                        raise ProtocolError("CAPTURE_INFO must contain a UUID and byte count.")
+                    captures.append({
+                        "capture_id": str(uuid.UUID(bytes=message.payload[:16])),
+                        "audio_bytes": struct.unpack("!I", message.payload[16:])[0],
+                    })
+                elif message.type is MessageType.CAPTURE_LIST_END:
+                    if len(message.payload) != 2:
+                        raise ProtocolError("CAPTURE_LIST_END must contain a count.")
+                    declared = struct.unpack("!H", message.payload)[0]
+                    if declared != len(captures):
+                        raise ProtocolError(
+                            f"Capture list declared {declared} entries; received {len(captures)}."
+                        )
+                    return 0, {
+                        "device_id": hello.device_id,
+                        "firmware_version": hello.firmware_version,
+                        "retained_captures": captures,
+                    }
+                elif message.type is MessageType.ERROR:
+                    raise ProtocolError("Device rejected LIST_CAPTURES.")
+                else:
+                    raise ProtocolError(f"Unexpected message while listing captures: {message.type.name}.")
+
+
 class CaptureLease(threading.Thread):
     """Reference TCP controller for START, renewable HEARTBEAT, and STOP."""
 
@@ -309,6 +357,16 @@ def human_report(summary: dict[str, object], prefix: str = "Metrics") -> str:
     )
 
 
+def write_wav_from_pcm(pcm_path: Path, wav_path: Path) -> None:
+    wav_path.parent.mkdir(parents=True, exist_ok=True)
+    with pcm_path.open("rb") as pcm, wave.open(str(wav_path), "wb") as output:
+        output.setnchannels(CANONICAL_CHANNELS)
+        output.setsampwidth(CANONICAL_SAMPLE_WIDTH_BITS // 8)
+        output.setframerate(CANONICAL_SAMPLE_RATE)
+        while chunk := pcm.read(64 * 1024):
+            output.writeframesraw(chunk)
+
+
 def run_receiver(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     connected_at = time.monotonic()
     metrics = Metrics(connected_at=connected_at)
@@ -317,22 +375,50 @@ def run_receiver(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     expected_sequence = 0
     expected_sample_index = 0
     target_reached = False
-    clean_stop = False
+    clean_stop = bool(args.resume_stream_id)
     failure: str | None = None
-    next_report = connected_at + args.report_interval
-    wav_file: wave.Wave_write | None = None
-    requested_stream = uuid.uuid4()
-    lease: CaptureLease | None = None
+    requested_stream = (
+        uuid.UUID(args.resume_stream_id) if args.resume_stream_id else uuid.uuid4()
+    )
+    metrics.capture_id = str(requested_stream)
+    metrics.audio_bytes = args.resume_offset
+    metrics.audio_frames = args.resume_offset // PCM_BYTES_PER_FRAME
+    transfer_directory = args.transfer_directory or Path(tempfile.gettempdir()) / "huh-receiver"
+    transfer_directory.mkdir(parents=True, exist_ok=True)
+    partial_path = args.partial_pcm or transfer_directory / f"{requested_stream}.partial"
+    if args.resume_stream_id:
+        if args.resume_offset == 0 and not partial_path.exists():
+            partial_path.write_bytes(b"")
+        if not partial_path.is_file() or partial_path.stat().st_size != args.resume_offset:
+            return 2, {
+                **metrics.summary(time.monotonic(), None, False),
+                "failure": "Resume requires a partial PCM file whose size matches --resume-offset.",
+                "partial_pcm": str(partial_path),
+            }
+    else:
+        partial_path.write_bytes(b"")
 
-    try:
-        client = socket.create_connection((args.host, args.port), args.connect_timeout)
-        client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        client.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, args.receive_buffer_bytes)
-        client.settimeout(args.read_timeout)
-        if not args.json:
-            print(f"Connected to {args.host}:{args.port}; waiting for HUH1 HELLO...")
-        with client, client.makefile("rb", buffering=args.receive_buffer_bytes) as stream:
-            while True:
+    phase = "fetching" if args.resume_stream_id else "new"
+    reconnects = 0
+    injected_disconnect = False
+    next_report = connected_at + args.report_interval
+
+    while reconnects <= args.max_reconnect_attempts and not target_reached:
+        lease: CaptureLease | None = None
+        attempt_hello: Hello | None = None
+        try:
+            client = socket.create_connection((args.host, args.port), args.connect_timeout)
+            client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            client.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, args.receive_buffer_bytes)
+            client.settimeout(args.connect_timeout)
+            if not args.json:
+                print(f"Connected to {args.host}:{args.port}; waiting for HUH1 HELLO...")
+            # Android's DataInputStream reads each exact header/payload request directly
+            # from the socket. A large Python BufferedReader can wait for its entire
+            # user-space buffer, withholding TCP window progress and creating stalls that
+            # the Android client would never produce.
+            with client, client.makefile("rb", buffering=0) as stream:
+              while True:
                 now = time.monotonic()
                 message = read_message(stream)
                 if message is None:
@@ -343,38 +429,48 @@ def run_receiver(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
                 metrics.wire_bytes += message.wire_bytes
 
                 if message.type is MessageType.HELLO:
-                    if hello is not None or active_stream is not None:
+                    if attempt_hello is not None:
                         raise ProtocolError("Unexpected duplicate HELLO.")
-                    hello = decode_hello(message.payload)
-                    validate_hello(hello, args.expected_device_id)
-                    if args.output_wav:
-                        args.output_wav.parent.mkdir(parents=True, exist_ok=True)
-                        wav_file = wave.open(str(args.output_wav), "wb")
-                        wav_file.setnchannels(hello.channels)
-                        wav_file.setsampwidth(hello.sample_width_bits // 8)
-                        wav_file.setframerate(hello.sample_rate_hz)
+                    attempt_hello = decode_hello(message.payload)
+                    validate_hello(attempt_hello, args.expected_device_id)
+                    hello = hello or attempt_hello
                     if not args.json:
                         print(
-                            f"HELLO: {hello.display_name} id={hello.device_id} "
-                            f"firmware={hello.firmware_version}"
+                            f"HELLO: {attempt_hello.display_name} id={attempt_hello.device_id} "
+                            f"firmware={attempt_hello.firmware_version}"
                         )
-                    lease = CaptureLease(
-                        client,
-                        requested_stream,
-                        args.duration,
-                        args.heartbeat_interval,
-                        args.drop_heartbeats_after,
-                        metrics,
-                    )
-                    lease.start()
+                    if phase == "fetching":
+                        active_stream = requested_stream
+                        client.settimeout(args.read_timeout)
+                        client.sendall(
+                            encode_message(
+                                MessageType.FETCH,
+                                requested_stream.bytes + struct.pack("!I", metrics.audio_bytes),
+                            )
+                        )
+                    elif phase == "new":
+                        lease = CaptureLease(
+                            client,
+                            requested_stream,
+                            args.duration,
+                            args.heartbeat_interval,
+                            args.drop_heartbeats_after,
+                            metrics,
+                        )
+                        lease.start()
+                        phase = "starting"
+                        client.settimeout(None)
+                    else:
+                        raise ProtocolError(f"Cannot continue capture from phase {phase}.")
                 elif message.type is MessageType.START:
-                    if hello is None or active_stream is not None:
+                    if attempt_hello is None or phase != "starting":
                         raise ProtocolError("Unexpected START.")
                     active_stream = parse_uuid_payload(message.payload, "START")
                     if active_stream != requested_stream:
                         raise ProtocolError("START did not acknowledge the requested capture UUID.")
                     expected_sequence = 0
                     expected_sample_index = 0
+                    phase = "capturing"
                     if not args.json:
                         print(f"START: stream={active_stream}")
                 elif message.type is MessageType.AUDIO:
@@ -405,8 +501,10 @@ def run_receiver(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
                     metrics.audio_bytes += len(pcm)
                     expected_sequence = sequence + 1
                     expected_sample_index = sample_index + CANONICAL_SAMPLES_PER_FRAME
-                    if wav_file:
-                        wav_file.writeframesraw(pcm)
+                    with partial_path.open("ab") as output:
+                        output.write(pcm)
+                        output.flush()
+                        os.fsync(output.fileno())
                 elif message.type is MessageType.HEARTBEAT:
                     reader = PayloadReader(message.payload)
                     stream_id = reader.stream_id()
@@ -424,8 +522,10 @@ def run_receiver(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
                         raise ProtocolError("STOP belongs to an inactive stream.")
                     metrics.stop_reason = reason
                     clean_stop = reason in (1, 2, 3, 7)
+                    phase = "fetching"
                     if lease:
                         lease.finished.set()
+                    client.settimeout(args.read_timeout)
                     client.sendall(
                         encode_message(
                             MessageType.FETCH,
@@ -451,8 +551,17 @@ def run_receiver(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
                     metrics.last_audio_at = chunk_at
                     metrics.audio_bytes += len(pcm)
                     metrics.audio_frames = metrics.audio_bytes // PCM_BYTES_PER_FRAME
-                    if wav_file:
-                        wav_file.writeframesraw(pcm)
+                    with partial_path.open("ab") as output:
+                        output.write(pcm)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    if (
+                        args.disconnect_after_bytes is not None
+                        and not injected_disconnect
+                        and metrics.audio_bytes >= args.disconnect_after_bytes
+                    ):
+                        injected_disconnect = True
+                        raise OSError("Injected transfer disconnect for resume validation.")
                 elif message.type is MessageType.FILE_END:
                     reader = PayloadReader(message.payload)
                     stream_id = reader.stream_id()
@@ -464,9 +573,20 @@ def run_receiver(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
                         raise ProtocolError(
                             f"FILE_END reports {total_bytes} bytes; received {metrics.audio_bytes}."
                         )
-                    client.sendall(encode_message(MessageType.ACK, stream_id.bytes))
+                    if total_bytes % PCM_BYTES_PER_FRAME:
+                        raise ProtocolError("FILE_END total is not aligned to a 20 ms PCM frame.")
+                    if partial_path.stat().st_size != total_bytes:
+                        raise ProtocolError("Local partial PCM size does not match FILE_END.")
+                    completed_pcm = partial_path.with_suffix(".pcm")
+                    partial_path.replace(completed_pcm)
+                    if args.output_wav:
+                        write_wav_from_pcm(completed_pcm, args.output_wav)
+                    if not args.retain_on_device:
+                        client.sendall(encode_message(MessageType.ACK, stream_id.bytes))
+                    completed_pcm.unlink(missing_ok=True)
                     active_stream = None
                     target_reached = True
+                    phase = "complete"
                     break
                 elif message.type is MessageType.ERROR:
                     reader = PayloadReader(message.payload)
@@ -482,19 +602,29 @@ def run_receiver(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
                     if not args.json:
                         print(human_report(metrics.summary(now, hello, target_reached)))
                     next_report = now + args.report_interval
-    except (OSError, ProtocolError) as error:
-        failure = str(error)
-    finally:
-        if lease:
-            lease.finished.set()
-            lease.join(timeout=1.0)
-        if wav_file:
-            wav_file.close()
+        except (OSError, ProtocolError) as error:
+            failure = str(error)
+            reconnects += 1
+            if phase in ("starting", "capturing"):
+                phase = "fetching"
+                time.sleep(args.lease_expiry_wait)
+            elif reconnects <= args.max_reconnect_attempts:
+                time.sleep(min(args.reconnect_max_delay, args.reconnect_base_delay * (2 ** (reconnects - 1))))
+        finally:
+            if lease:
+                lease.finished.set()
+                lease.join(timeout=1.0)
+
+    if target_reached:
+        failure = None
 
     ended_at = time.monotonic()
     if lease and lease.failure and not failure:
         failure = f"Control lease failed: {lease.failure}"
     summary = metrics.summary(ended_at, hello, target_reached)
+    summary["reconnects"] = reconnects
+    summary["partial_pcm"] = None if target_reached else str(partial_path)
+    summary["retained_on_device"] = bool(target_reached and args.retain_on_device)
     summary["failure"] = failure
     if not failure and metrics.remote_errors:
         summary["failure"] = "Remote device error(s): " + "; ".join(metrics.remote_errors)
@@ -563,7 +693,51 @@ def build_parser() -> argparse.ArgumentParser:
         help="stop renewing the lease after this many seconds and expect device timeout",
     )
     parser.add_argument("--output-wav", type=Path, help="optional PCM WAV output path")
+    parser.add_argument(
+        "--resume-stream-id",
+        help="resume FETCH for an already finalized capture UUID instead of sending START",
+    )
+    parser.add_argument(
+        "--resume-offset",
+        type=int,
+        default=0,
+        help="existing verified PCM byte count used with --resume-stream-id",
+    )
+    parser.add_argument(
+        "--partial-pcm",
+        type=Path,
+        help="Android-style local partial PCM file to create or resume",
+    )
+    parser.add_argument(
+        "--transfer-directory",
+        type=Path,
+        help="directory for app-private-style temporary PCM transfer files",
+    )
+    parser.add_argument("--max-reconnect-attempts", type=int, default=8)
+    parser.add_argument(
+        "--disconnect-after-bytes",
+        type=int,
+        help="test-only: drop the TCP connection once after this many transferred PCM bytes",
+    )
+    parser.add_argument("--reconnect-base-delay", type=positive_float, default=1.0)
+    parser.add_argument("--reconnect-max-delay", type=positive_float, default=30.0)
+    parser.add_argument(
+        "--lease-expiry-wait",
+        type=positive_float,
+        default=16.0,
+        help="wait before FETCH after losing a capture connection",
+    )
     parser.add_argument("--expected-device-id")
+    parser.add_argument(
+        "--retain-on-device",
+        action="store_true",
+        help="validate a completed transfer without ACKing SD deletion",
+    )
+    parser.add_argument(
+        "--list-captures",
+        action="store_true",
+        help="list finalized SD captures without starting a recording",
+    )
     parser.add_argument("--report-interval", type=nonnegative_float, default=5.0)
     parser.add_argument("--connect-timeout", type=positive_float, default=10.0)
     parser.add_argument("--read-timeout", type=positive_float, default=30.0)
@@ -582,8 +756,23 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--receive-buffer-bytes is too small")
     if args.max_gap_frames < 0:
         raise SystemExit("--max-gap-frames cannot be negative")
+    if args.max_reconnect_attempts < 0:
+        raise SystemExit("--max-reconnect-attempts cannot be negative")
+    if args.disconnect_after_bytes is not None and args.disconnect_after_bytes < 1:
+        raise SystemExit("--disconnect-after-bytes must be positive")
+    if args.resume_offset < 0 or args.resume_offset > 0xFFFF_FFFF:
+        raise SystemExit("--resume-offset must fit an unsigned 32-bit value")
+    if args.resume_offset and not args.resume_stream_id:
+        raise SystemExit("--resume-offset requires --resume-stream-id")
+    if args.resume_stream_id:
+        try:
+            uuid.UUID(args.resume_stream_id)
+        except ValueError as error:
+            raise SystemExit("--resume-stream-id must be a UUID") from error
     try:
-        exit_code, summary = run_receiver(args)
+        exit_code, summary = (
+            list_retained_captures(args) if args.list_captures else run_receiver(args)
+        )
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130

@@ -31,6 +31,7 @@ import com.mobileobie.echo.interpretation.OpenAiLanTranscriptInterpreter
 import com.mobileobie.echo.interpretation.SelectedTranscriptInterpreter
 import com.mobileobie.echo.settings.AudioInputChoice
 import com.mobileobie.echo.settings.AiProviderKind
+import com.mobileobie.echo.telemetry.TelemetryEvent
 import com.mobileobie.echo.ui.HuhTheme
 import com.mobileobie.echo.ui.HuhApp
 import com.mobileobie.echo.ui.RecorderViewModel
@@ -62,6 +63,14 @@ class MainActivity : ComponentActivity() {
                 },
             ),
             sessionRepository = container.sessionRepository,
+            telemetry = container.telemetry,
+            inferenceProvider = {
+                when (container.selectionSettings.aiProviders.firstOrNull { it.enabled && it.available }?.kind) {
+                    AiProviderKind.ON_DEVICE -> TelemetryEvent.Provider.ON_DEVICE
+                    AiProviderKind.LAN -> TelemetryEvent.Provider.LAN
+                    else -> TelemetryEvent.Provider.UNAVAILABLE
+                }
+            },
             quietBoundaryMs = { container.activeListeningSettings.quietBoundaryMs.toLong() },
         )
 
@@ -96,6 +105,7 @@ class MainActivity : ComponentActivity() {
             var pendingExternalEndpoint by remember { mutableStateOf<ExternalDeviceEndpoint?>(null) }
             var selectedAudioInput by remember { mutableStateOf(container.selectionSettings.audioInput) }
             var aiProviders by remember { mutableStateOf(container.selectionSettings.aiProviders) }
+            var telemetryConsent by remember { mutableStateOf(container.telemetrySettings.consent) }
             var pendingAiAction by remember { mutableStateOf<(() -> Unit)?>(null) }
             SideEffect {
                 WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -343,6 +353,12 @@ class MainActivity : ComponentActivity() {
                     onAiProvidersChanged = {
                         aiProviders = it
                         container.selectionSettings.aiProviders = it
+                    },
+                    telemetryConsent = telemetryConsent,
+                    onTelemetryConsentChanged = {
+                        telemetryConsent = it
+                        container.telemetrySettings.consent = it
+                        container.telemetry.applyConsent(it)
                     },
                 )
             }

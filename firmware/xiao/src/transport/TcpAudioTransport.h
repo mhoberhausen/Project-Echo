@@ -57,6 +57,8 @@ class TcpAudioTransport : public protocol::ByteSink {
   void resetStream(bool removeFile);
   bool matchingStream(const uint8_t* payload, size_t length) const;
   bool beginFetch(uint32_t offset);
+  bool sendCaptureList();
+  bool selectRetainedCapture(const uint8_t* payload, size_t length);
 
   uint16_t port_;
   protocol::HelloInfo identity_;

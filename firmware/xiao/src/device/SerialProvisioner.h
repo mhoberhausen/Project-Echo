@@ -11,6 +11,7 @@ enum class ProvisioningEvent {
   kCredentialsSaved,
   kCredentialsReset,
   kStatusRequested,
+  kCapturesRequested,
 };
 
 class SerialProvisioner {

@@ -141,6 +141,15 @@ void testAllControlMessageLayouts() {
   assertEnvelope(bytes, MessageType::kFileEnd, 20);
   TEST_ASSERT_EQUAL_UINT8(0x10, bytes[30]);
   TEST_ASSERT_EQUAL_UINT8(0x00, bytes[31]);
+
+  TEST_ASSERT_TRUE(huh::protocol::encodeCaptureInfo(stream, 4096, bytes));
+  assertEnvelope(bytes, MessageType::kCaptureInfo, 20);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(stream.data(), bytes.data() + 12, stream.size());
+
+  TEST_ASSERT_TRUE(huh::protocol::encodeCaptureListEnd(3, bytes));
+  assertEnvelope(bytes, MessageType::kCaptureListEnd, 2);
+  TEST_ASSERT_EQUAL_UINT8(0, bytes[12]);
+  TEST_ASSERT_EQUAL_UINT8(3, bytes[13]);
 }
 
 void testOversizedPayloadIsRejected() {

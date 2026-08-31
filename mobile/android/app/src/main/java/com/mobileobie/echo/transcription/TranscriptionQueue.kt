@@ -50,12 +50,17 @@ class TranscriptionQueue(
     suspend fun recover() {
         repository.refresh()
         repository.sessions.value
-            .filter { it.status == SessionStatus.TRANSCRIBING && !it.audioPath.isNullOrBlank() }
+            .filter { it.status in setOf(SessionStatus.CAPTURING, SessionStatus.TRANSCRIBING) && !it.audioPath.isNullOrBlank() }
             .filter { session ->
                 workManager.getWorkInfosByTag(sessionTag(session.id)).get()
                     .none { !it.state.isFinished }
             }
-            .forEach(::enqueue)
+            .forEach { session ->
+                if (session.status == SessionStatus.CAPTURING) {
+                    repository.updateStatus(session.id, SessionStatus.TRANSCRIBING)
+                }
+                enqueue(session)
+            }
     }
 
     companion object {

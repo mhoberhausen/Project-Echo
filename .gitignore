@@ -6,6 +6,7 @@
 **/.kotlin/
 .tmp/
 **/local.properties
+**/google-services.json
 **/build/
 *.iml
 captures/

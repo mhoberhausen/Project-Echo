@@ -1,9 +1,6 @@
 package com.mobileobie.echo.audio
 
 import com.mobileobie.echo.vad.VoiceActivity
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /** Builds speech-bearing chunks without retaining long between-utterance silence. */
 class SilenceChunkAccumulator(
@@ -13,8 +10,8 @@ class SilenceChunkAccumulator(
 ) {
     private val quietBoundarySamples = quietBoundaryMs * sampleRateHz / 1_000L
     private val preRollSamples = (preRollMs * sampleRateHz / 1_000L).toInt()
-    private val chunk = PcmBuffer()
-    private val preRoll = ArrayDeque<Short>()
+    private val chunk = PcmSampleBuffer()
+    private val preRoll = RollingAudioBuffer(preRollSamples)
     private var samplesObserved = 0L
     private var chunkStartSample = 0L
     private var quietSamples = 0L
@@ -32,16 +29,13 @@ class SilenceChunkAccumulator(
         samplesObserved += samples.size
 
         if (!hasSpeech && activity == VoiceActivity.SILENCE) {
-            samples.forEach {
-                preRoll.addLast(it)
-                if (preRoll.size > preRollSamples) preRoll.removeFirst()
-            }
+            preRoll.append(samples)
             return null
         }
 
         if (!hasSpeech) {
             chunkStartSample = (frameStart - preRoll.size).coerceAtLeast(0)
-            chunk.write(preRoll.toShortArray())
+            chunk.write(preRoll.snapshot())
             preRoll.clear()
             hasSpeech = true
         }
@@ -52,7 +46,7 @@ class SilenceChunkAccumulator(
         return emitChunk()
     }
 
-    fun finish(): RecordedAudioChunk? = if (hasSpeech && !chunk.isEmpty()) emitChunk() else null
+    fun finish(): RecordedAudioChunk? = if (hasSpeech && chunk.size > 0) emitChunk() else null
 
     private fun emitChunk(): RecordedAudioChunk {
         val result = RecordedAudioChunk(
@@ -63,27 +57,6 @@ class SilenceChunkAccumulator(
         quietSamples = 0
         preRoll.clear()
         return result
-    }
-
-    private class PcmBuffer {
-        private var output = ByteArrayOutputStream()
-
-        fun write(samples: ShortArray) {
-            if (samples.isEmpty()) return
-            val bytes = ByteBuffer.allocate(samples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
-            samples.forEach(bytes::putShort)
-            output.write(bytes.array())
-        }
-
-        fun isEmpty(): Boolean = output.size() == 0
-
-        fun take(): ShortArray {
-            val bytes = output.toByteArray()
-            output = ByteArrayOutputStream()
-            return ShortArray(bytes.size / 2).also {
-                ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(it)
-            }
-        }
     }
 
     companion object {

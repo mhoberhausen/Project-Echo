@@ -188,6 +188,9 @@ private class FakeRepository : SessionRepository {
     override suspend fun create(session: SessionRecord) {
         mutableSessions.value = mutableSessions.value + session
     }
+    override suspend fun updateCapturedSession(session: SessionRecord) {
+        mutableSessions.value = mutableSessions.value.map { if (it.id == session.id) session else it }
+    }
     override suspend fun updateStatus(id: String, status: SessionStatus) {
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) it.copy(status = status) else it }
     }

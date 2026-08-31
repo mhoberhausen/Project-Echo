@@ -3,11 +3,17 @@
 #include <Arduino.h>
 #include <FS.h>
 #include <SD.h>
+#include <vector>
 
 #include "../audio/AudioFrame.h"
 #include "../protocol/HuhAudioProtocol.h"
 
 namespace huh::storage {
+
+struct FinalizedCapture {
+  protocol::StreamUuid stream{};
+  uint32_t audioBytes = 0;
+};
 
 class SdWavRecorder {
  public:
@@ -18,6 +24,9 @@ class SdWavRecorder {
   bool finish();
   File openFinalized();
   bool removeFinalized();
+  size_t printFinalizedCaptures(Print& out) const;
+  std::vector<FinalizedCapture> finalizedCaptures() const;
+  bool selectFinalized(const protocol::StreamUuid& stream);
 
   bool isMounted() const { return mounted_; }
   bool isRecording() const { return static_cast<bool>(output_); }
@@ -26,7 +35,10 @@ class SdWavRecorder {
 
  private:
   static bool writeHeader(File& file, uint32_t dataBytes);
+  static bool validateWav(File& file, uint32_t& audioBytes);
   static String uuidText(const protocol::StreamUuid& stream);
+  static bool parseCaptureName(const String& name, protocol::StreamUuid& stream);
+  size_t recoverInterruptedCaptures();
 
   bool mounted_ = false;
   File output_;

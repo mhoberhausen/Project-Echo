@@ -39,6 +39,10 @@ class SQLiteSessionRepository(
         reload()
     }
 
+    override suspend fun updateCapturedSession(session: SessionRecord) = withContext(Dispatchers.IO) {
+        update(session.id, session.values())
+    }
+
     override suspend fun updateStatus(id: String, status: SessionStatus) = withContext(Dispatchers.IO) {
         update(id, ContentValues().apply {
             put(COLUMN_STATUS, status.name)

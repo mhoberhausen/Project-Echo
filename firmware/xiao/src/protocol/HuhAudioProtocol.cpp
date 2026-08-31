@@ -153,6 +153,19 @@ bool encodeFileEnd(const StreamUuid& stream, uint32_t totalBytes,
   return wrap(MessageType::kFileEnd, payload, output);
 }
 
+bool encodeCaptureInfo(const StreamUuid& stream, uint32_t totalBytes,
+                       std::vector<uint8_t>& output) {
+  std::vector<uint8_t> payload(stream.begin(), stream.end());
+  appendU32(payload, totalBytes);
+  return wrap(MessageType::kCaptureInfo, payload, output);
+}
+
+bool encodeCaptureListEnd(uint16_t count, std::vector<uint8_t>& output) {
+  std::vector<uint8_t> payload;
+  appendU16(payload, count);
+  return wrap(MessageType::kCaptureListEnd, payload, output);
+}
+
 bool AudioStreamSession::encodeStartMessage(std::vector<uint8_t>& output) const {
   return encodeStart(stream_, output);
 }

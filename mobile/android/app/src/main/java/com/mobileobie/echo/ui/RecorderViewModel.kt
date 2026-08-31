@@ -19,6 +19,9 @@ import com.mobileobie.echo.transcription.TimestampedTranscript
 import com.mobileobie.echo.transcription.TranscriptCleaner
 import com.mobileobie.echo.transcription.SpeakerDiarizer
 import com.mobileobie.echo.transcription.SpeakerLabels
+import com.mobileobie.echo.telemetry.Telemetry
+import com.mobileobie.echo.telemetry.TelemetryEvent
+import com.mobileobie.echo.telemetry.NoOpTelemetry
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +37,8 @@ class RecorderViewModel(
     private val cleaner: TranscriptCleaner,
     private val interpreter: TranscriptInterpreter,
     private val sessionRepository: SessionRepository,
+    private val telemetry: Telemetry = NoOpTelemetry,
+    private val inferenceProvider: () -> TelemetryEvent.Provider = { TelemetryEvent.Provider.UNAVAILABLE },
     private val quietBoundaryMs: () -> Long = { 1_000L },
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(RecorderUiState())
@@ -68,6 +73,7 @@ class RecorderViewModel(
                         )
                     }
                     startTimer()
+                    telemetry.record(TelemetryEvent.Capture(TelemetryEvent.Source.PHONE, TelemetryEvent.Outcome.STARTED))
                 }
                 .onFailure {
                     cancelChunkTranscription()
@@ -100,6 +106,14 @@ class RecorderViewModel(
                 sessionRepository.create(session)
                 session
             }.onSuccess { session ->
+                telemetry.record(
+                    TelemetryEvent.Processing(
+                        TelemetryEvent.Stage.TRANSCRIPTION,
+                        TelemetryEvent.Outcome.COMPLETED,
+                        durationBucket(session.durationMillis),
+                    )
+                )
+                telemetry.record(TelemetryEvent.Capture(TelemetryEvent.Source.PHONE, TelemetryEvent.Outcome.COMPLETED))
                 _uiState.value = RecorderUiState(
                     phase = RecordingPhase.COMPLETE,
                     originalTranscript = session.originalTranscript,
@@ -108,7 +122,11 @@ class RecorderViewModel(
                     sessionId = session.id,
                     speakerIds = session.transcriptSegments.mapNotNull { it.speakerId }.distinct(),
                 )
-            }.onFailure(::showError)
+            }.onFailure {
+                telemetry.record(TelemetryEvent.Processing(TelemetryEvent.Stage.TRANSCRIPTION, TelemetryEvent.Outcome.FAILED, TelemetryEvent.DurationBucket.UNDER_30_SECONDS))
+                telemetry.recordSanitizedFailure("manual_transcription_failed")
+                showError(it)
+            }
         }
     }
 
@@ -126,6 +144,7 @@ class RecorderViewModel(
             runCatching { recorder.stop() }
                 .onSuccess {
                     _uiState.update { RecorderUiState(selectedModel = it.selectedModel) }
+                    telemetry.record(TelemetryEvent.Capture(TelemetryEvent.Source.PHONE, TelemetryEvent.Outcome.CANCELLED))
                 }
                 .onFailure(::showError)
         }
@@ -222,11 +241,14 @@ class RecorderViewModel(
                 }
             }
                 .onSuccess { result ->
+                    telemetry.record(TelemetryEvent.Inference(inferenceProvider(), TelemetryEvent.Outcome.COMPLETED))
                     if (updateRecorderState) {
                         _uiState.update { it.copy(phase = RecordingPhase.PROCESSED, processedMessage = result) }
                     }
                 }
                 .onFailure { error ->
+                    telemetry.record(TelemetryEvent.Inference(inferenceProvider(), TelemetryEvent.Outcome.FAILED))
+                    telemetry.recordSanitizedFailure("inference_failed")
                     Log.e(LOG_TAG, "Saved transcript interpretation failed for session $sessionId", error)
                     runCatching { sessionRepository.updateStatus(sessionId, SessionStatus.FAILED) }
                     if (updateRecorderState) {
@@ -313,6 +335,12 @@ class RecorderViewModel(
                 errorMessage = error.message ?: "Something went wrong. Please try again.",
             )
         }
+    }
+
+    private fun durationBucket(durationMillis: Long): TelemetryEvent.DurationBucket = when {
+        durationMillis < 30_000 -> TelemetryEvent.DurationBucket.UNDER_30_SECONDS
+        durationMillis < 120_000 -> TelemetryEvent.DurationBucket.UNDER_2_MINUTES
+        else -> TelemetryEvent.DurationBucket.OVER_2_MINUTES
     }
 
     override fun onCleared() {

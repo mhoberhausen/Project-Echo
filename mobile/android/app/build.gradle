@@ -3,6 +3,13 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+// Firebase configuration is intentionally supplied by the app owner. Keeping this
+// conditional lets local/offline builds remain usable before google-services.json exists.
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
+    apply plugin: 'com.google.firebase.crashlytics'
+}
+
 android {
     namespace = 'com.mobileobie.echo'
     compileSdk = 37
@@ -77,6 +84,9 @@ dependencies {
     implementation 'androidx.compose.material:material'
     implementation 'androidx.compose.material:material-icons-core'
     implementation 'com.google.ai.edge.litertlm:litertlm-android:0.16.1'
+    implementation platform('com.google.firebase:firebase-bom:34.18.0')
+    implementation 'com.google.firebase:firebase-analytics'
+    implementation 'com.google.firebase:firebase-crashlytics'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
     instrumentationImplementation 'androidx.compose.ui:ui-tooling'

@@ -64,9 +64,23 @@ The app declares:
 - foreground-service and notification permissions for visible active listening and local
   transcription work.
 - `ACCESS_LOCAL_NETWORK` on Android 17 and `INTERNET` for direct communication with the
-  user-configured Puck or private-LAN AI endpoint.
+  user-configured Puck or private-LAN AI endpoint, plus optional Firebase reporting after
+  the user explicitly enables it.
 
-There is no analytics SDK, account system, cloud transcription, or cloud-LLM connector.
+There is no account system, cloud transcription, or cloud-LLM connector. Firebase crash
+diagnostics and anonymous product insights are optional, independently controlled, and off by
+default. They never receive audio, transcripts, timestamps, speaker/session names, inferred
+content, prompts, AI responses, local endpoint addresses, credentials, or settings values.
+
+## Optional Firebase diagnostics
+
+To enable the opt-in **Help improve Huh?** controls in a build, register
+`com.mobileobie.echo` in the owner-managed Firebase project and place its downloaded
+`google-services.json` at `app/google-services.json` (it is intentionally ignored by Git).
+Without that file, the app builds normally and the telemetry implementation remains a no-op.
+The app disables Firebase Analytics and Crashlytics by default in its manifest; a user must
+enable each switch separately in Settings. Do not add Analytics breadcrumbs, custom user IDs,
+custom keys/logs containing user data, or advertising integrations.
 Cleartext traffic is enabled for user-selected LAN endpoints, while application validation
 rejects LAN AI hosts that resolve outside private/local address ranges. The trusted-LAN Puck
 and LAN AI connectors are unauthenticated and should not be used on an untrusted network.

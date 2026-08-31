@@ -24,15 +24,18 @@ Bluetooth, a cloud service, or telemetry.
 
 The default build captures exact 20 ms / 640-byte PCM frames on a dedicated task and writes
 them directly to a temporary WAV on microSD. HUH1 is bidirectional: the controller sends
-`START`, renewable `HEARTBEAT`, `STOP`, `FETCH`, and `ACK`; firmware responds with `HELLO`,
-`START`, `STOP`, `FILE_CHUNK`, `FILE_END`, or `ERROR`. Metadata is network-order and PCM is
+`START`, renewable `HEARTBEAT`, `STOP`, `LIST_CAPTURES`, `FETCH`, and `ACK`; firmware responds with `HELLO`,
+`START`, `STOP`, `CAPTURE_INFO`, `CAPTURE_LIST_END`, `FILE_CHUNK`, `FILE_END`, or `ERROR`. Metadata is network-order and PCM is
 untouched 16 kHz, 16-bit, little-endian mono.
 
 `START` arms a 15-second capture lease. A matching heartbeat normally arrives every five
 seconds. Explicit `STOP` or lease expiry stops the microphone, finalizes and atomically
 renames the WAV, and immediately reports `STOP`. File transfer is a separate explicit
 `FETCH` operation and may resume at a byte offset. Firmware deletes the WAV only after a
-matching `ACK`. This is still an unauthenticated trusted-LAN POC; BLE pairing/control is
+matching `ACK`. Finalized WAVs are validated and rediscovered after reboot; aligned `.part`
+captures interrupted by power loss are repaired and promoted at boot. The Python controller
+supports `--list-captures` and non-destructive validation with `--retain-on-device`.
+This is still an unauthenticated trusted-LAN POC; BLE pairing/control is
 future work.
 
 ## One-time Wi-Fi setup
@@ -110,13 +113,24 @@ bytes of audio (16,000 samples/second × 2 bytes/sample × 10 seconds).
 ### Python HUH1 receiver
 
 `tools/huh_receiver.py` is the dependency-free reference controller for firmware smoke
-tests. It connects, validates `HELLO`, issues `START`, renews the capture lease, sends
-`STOP`, fetches the finalized WAV, validates offsets and length, and acknowledges receipt.
+tests. It mirrors the Android receiver lifecycle: it connects, validates `HELLO`, issues
+`START`, renews the capture lease, sends `STOP`, persists raw PCM to an app-private-style
+partial file, fetches the finalized recording, validates offsets/length/frame alignment,
+and acknowledges receipt only after local finalization. If a transfer is interrupted, it
+reconnects with bounded backoff and resumes using `FETCH` at the persisted byte offset.
 
 Record for 30 seconds and fetch a WAV:
 
 ```text
 python tools/huh_receiver.py 192.0.2.1 --duration 30 --output-wav capture.wav
+```
+
+Exercise Android-style transfer recovery by dropping the controller connection once after
+32 KiB; the client reconnects and resumes from its partial PCM file:
+
+```text
+python tools/huh_receiver.py 192.0.2.1 --duration 5 --disconnect-after-bytes 32768 \
+  --output-wav capture.wav
 ```
 
 Deliberately stop heartbeats after two seconds and verify the 15-second lease timeout:
@@ -134,3 +148,7 @@ Run its host-side unit tests with:
 ```text
 python -m unittest discover -s test -p "test_python_receiver.py"
 ```
+
+The client also accepts `--resume-stream-id`, `--resume-offset`, and `--partial-pcm` for
+manually continuing a finalized transfer after a process restart. The production Android
+service keeps equivalent state in its active source/transfer directory.

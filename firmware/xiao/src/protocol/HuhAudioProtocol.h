@@ -25,6 +25,9 @@ enum class MessageType : uint8_t {
   kFetch = 8,
   kFileChunk = 9,
   kFileEnd = 10,
+  kListCaptures = 11,
+  kCaptureInfo = 12,
+  kCaptureListEnd = 13,
 };
 
 enum class StopReason : uint8_t {
@@ -71,6 +74,9 @@ bool encodeFileChunk(const StreamUuid& stream, uint32_t offset,
                      std::vector<uint8_t>& output);
 bool encodeFileEnd(const StreamUuid& stream, uint32_t totalBytes,
                    std::vector<uint8_t>& output);
+bool encodeCaptureInfo(const StreamUuid& stream, uint32_t totalBytes,
+                       std::vector<uint8_t>& output);
+bool encodeCaptureListEnd(uint16_t count, std::vector<uint8_t>& output);
 
 class AudioStreamSession {
  public:

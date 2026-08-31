@@ -11,6 +11,7 @@
 #include "audio/PdmAudioCapture.h"
 #include "device/DeviceIdentity.h"
 #if !ENABLE_SD_RECORDING_TEST
+#include "device/BleControlService.h"
 #include "device/SerialProvisioner.h"
 #include "device/WifiCredentialStore.h"
 #endif
@@ -34,6 +35,7 @@ huh::device::WifiCredentialStore credentialStore;
 huh::device::SerialProvisioner serialProvisioner(credentialStore);
 huh::transport::TrustedLanWifi trustedLanWifi;
 std::unique_ptr<huh::transport::TcpAudioTransport> tcpTransport;
+huh::device::BleControlService bleControl;
 
 void printWifiStatus() {
   Serial.printf("Wi-Fi: %s\n", trustedLanWifi.stateName());
@@ -250,6 +252,7 @@ void setup() {
   Serial.flush();
   tcpTransport = std::make_unique<huh::transport::TcpAudioTransport>(
       config::kTcpAudioPort, identity, streamingController, sdRecorder);
+  if (!bleControl.begin(identity)) Serial.println("ERROR: BLE control service could not start.");
   huh::device::WifiCredentials credentials;
   const bool hasCredentials = credentialStore.load(credentials);
   serialProvisioner.begin(hasCredentials);
@@ -273,6 +276,10 @@ void loop() {
     case huh::device::ProvisioningEvent::kStatusRequested:
       printWifiStatus();
       break;
+    case huh::device::ProvisioningEvent::kCapturesRequested:
+      if (!sdRecorder.isMounted()) Serial.println("SD card is not mounted.");
+      else if (sdRecorder.printFinalizedCaptures(Serial) == 0) Serial.println("No finalized captures retained.");
+      break;
     case huh::device::ProvisioningEvent::kNone:
       break;
   }
@@ -281,6 +288,37 @@ void loop() {
     tcpTransport->setNetworkAvailable(trustedLanWifi.isConnected());
     tcpTransport->poll();
   }
+  huh::device::HardwareControlRequest controlRequest;
+  if (bleControl.takeRequest(controlRequest)) {
+    switch (controlRequest.command) {
+      case huh::device::HardwareControlCommand::kStatus:
+        bleControl.publishResponse(controlRequest.requestId, "OK");
+        break;
+      case huh::device::HardwareControlCommand::kPause:
+        if (tcpTransport != nullptr && tcpTransport->isCapturing()) {
+          tcpTransport->stop(huh::protocol::StopReason::kPause);
+          bleControl.publishResponse(controlRequest.requestId, "OK");
+        } else bleControl.publishResponse(controlRequest.requestId, "NOT_CAPTURING");
+        break;
+      case huh::device::HardwareControlCommand::kStop:
+        if (tcpTransport != nullptr && tcpTransport->isCapturing()) {
+          tcpTransport->stop(huh::protocol::StopReason::kUserStop);
+          bleControl.publishResponse(controlRequest.requestId, "OK");
+        } else bleControl.publishResponse(controlRequest.requestId, "NOT_CAPTURING");
+        break;
+      case huh::device::HardwareControlCommand::kStart:
+      case huh::device::HardwareControlCommand::kResume:
+        bleControl.publishResponse(controlRequest.requestId, "TCP_START_REQUIRED");
+        break;
+      case huh::device::HardwareControlCommand::kUnknown:
+        bleControl.publishResponse(controlRequest.requestId, "INVALID_REQUEST");
+        break;
+    }
+  }
+  const char* bleState = !trustedLanWifi.isConnected() ? "DISCONNECTED" :
+      (tcpTransport != nullptr && tcpTransport->isCapturing() ? "CAPTURING" :
+       (tcpTransport != nullptr && tcpTransport->hasClient() ? "CONNECTED" : "READY"));
+  bleControl.publishStatus(bleState);
   if (tcpTransport == nullptr || !tcpTransport->shouldPollImmediately()) {
     delay(1);
   } else {
