@@ -22,7 +22,7 @@ class IncrementalTranscriptionWorkerTest {
                     listOf(TranscriptSegment(10, 90, "chunk ${++call}")),
                 )
             },
-            model = TranscriptionModel.FAST,
+            model = TranscriptionModel.ACCURATE,
         )
 
         worker.offer(RecordedAudioChunk(RecordedAudio(shortArrayOf(1), 16_000), 0))
@@ -44,7 +44,7 @@ class IncrementalTranscriptionWorkerTest {
                     model: TranscriptionModel,
                 ): TimestampedTranscript = throw NoSpeechDetectedException()
             },
-            model = TranscriptionModel.FAST,
+            model = TranscriptionModel.ACCURATE,
         )
 
         worker.offer(RecordedAudioChunk(RecordedAudio(shortArrayOf(1), 16_000), 0))

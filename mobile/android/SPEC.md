@@ -24,7 +24,7 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 - [x] Kotlin, Jetpack Compose, MVVM, Coroutines, and StateFlow application foundation
 - [x] Microphone permission and 16 kHz mono PCM capture through `AudioRecord`
 - [x] Start/stop recording flow with a visible timer
-- [x] Fully local `whisper.cpp` transcription with bundled `tiny.en` and `base.en` models
+- [x] Fully local `whisper.cpp` transcription with the bundled Accurate (`base.en`) model
 - [x] Preserve Whisper segment start/end timestamps with each saved transcript
 - [x] Run optional sherpa-onnx speaker diarization after Whisper; a model-agnostic acoustic
   engine boundary and pass-through fallback keep the stage replaceable
@@ -35,6 +35,8 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 - [x] Processed-result UI, including transcript disclosure and empty action-item handling
 - [x] No account, cloud transcription, or cloud LLM path; Firebase crash diagnostics and
   anonymous usage insights are independent, explicit opt-ins with a content-free event boundary.
+  Optional developer support is a configured external-browser link only: it has no subscription,
+  donation processing, feature gate, quota, premium state, or support tracking.
   `INTERNET` and Android
   17 local-network access are limited to user-configured private-LAN device/AI endpoints
 - [x] Persist an audio-input picker for the phone or configured Huh? Puck, with an honest
@@ -92,7 +94,7 @@ bitmap.
 - [x] Add a subtle recording-only ripple and keep idle rendering static
 - [x] Use distinct, human-readable states for recording, Whisper transcription, and Gemma
   interpretation
-- [x] Preserve Fast / Accurate model selection and all recording, persistence, processing,
+- [x] Use Accurate local transcription consistently across recording, persistence, processing,
   sharing, and deletion behavior
 - [x] Replace the Keep an Ear Out placeholder with explicit Off, Starting, Waiting,
   Listening, Paused, and Error states
@@ -122,8 +124,8 @@ processing explicitly staged.
 ### Manual Mode
 
 - [x] Replace the idle **Start listening** button with a large circular play control.
-- [x] Present the bundled Whisper choices as a simple **Fast** / **Accurate** toggle while
-  keeping the underlying `tiny.en` / `base.en` mapping internal to the app.
+- [x] Use Accurate (`base.en`) local transcription without a model-selection control in the
+  user interface.
 
 ### Navigation Drawer
 
@@ -187,14 +189,14 @@ milestone and are not part of the first UI-shell implementation.
 ### Preferences
 
 - [x] Light and dark appearance selection (in-memory for the current app session)
-- [x] Whisper transcription model selection (`tiny.en` or `base.en`)
+- [x] Accurate (`base.en`) Whisper transcription
 - [x] Advanced Settings child page for Active Listening timing and eligibility, with a
   one-tap **Reset to defaults** action
 - [x] Explain Active Listening terminology such as VAD (Voice Activity Detection) before
   using its acronym in the Advanced Settings controls
 - [x] Configurable 5–60 second continuous no-speech ending threshold, defaulting to 15
   seconds and persisted locally for the next Active Listening activation
-- [x] Persist the Active Listening Whisper-model choice locally
+- [x] Default legacy Active Listening model preferences to Accurate (`base.en`)
 - [x] Persist advanced defaults of 400 ms sustained speech to start, two seconds of pre-roll,
   and three seconds of cumulative VAD-positive speech before transcription
 - [x] Persist optional transcript cleanup, defaulting to discarding results shorter than

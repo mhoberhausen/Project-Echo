@@ -96,7 +96,7 @@ class SQLiteSessionRepositoryTest {
     fun persistsUniversalExternalDeviceMetadata() = runBlocking {
         val session = SessionMetadata.createTranscribing(
             durationMillis = 4_000,
-            transcriptionModel = TranscriptionModel.FAST,
+            transcriptionModel = TranscriptionModel.ACCURATE,
             source = SessionSource.EXTERNAL_DEVICE,
             audioPath = "external.pcm",
             externalDevice = ExternalDeviceSessionMetadata(
@@ -132,7 +132,7 @@ class SQLiteSessionRepositoryTest {
                 TranscriptSegment(0, 900, "Hello.", "speaker-1"),
                 TranscriptSegment(1_000, 1_900, "Hi.", "speaker-2"),
             ),
-            transcriptionModel = TranscriptionModel.FAST,
+            transcriptionModel = TranscriptionModel.ACCURATE,
         )
         repository.create(session)
         repository.updateStatus(session.id, SessionStatus.QUEUED)

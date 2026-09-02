@@ -8,10 +8,13 @@
 **/local.properties
 **/google-services.json
 **/build/
+**/release/
+**/gemma_model/
 *.iml
 captures/
 .externalNativeBuild/
 .cxx/
+mobile/android/gemma_model/src/main/assets/models/*.litertlm
 mobile/android/app/src/main/assets/models/*.bin
 mobile/android/app/src/main/assets/models/*.litertlm
 mobile/android/app/src/main/assets/models/diarization/*.onnx

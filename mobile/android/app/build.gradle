@@ -8,6 +8,12 @@ plugins {
 if (file('google-services.json').exists()) {
     apply plugin: 'com.google.gms.google-services'
     apply plugin: 'com.google.firebase.crashlytics'
+
+    // Instrumentation uses an isolated applicationId specifically so tests cannot touch a
+    // user's app data. It is intentionally not a Firebase app registration.
+    tasks.matching { it.name == 'processInstrumentationGoogleServices' }.configureEach {
+        enabled = false
+    }
 }
 
 android {
@@ -56,6 +62,11 @@ android {
     androidResources {
         noCompress += ['onnx']
     }
+
+    // Gemma is delivered by Google Play as a separate install-time AI pack. It is ready
+    // before first launch, while keeping the base install focused on transcription and
+    // diarization.
+    assetPacks = [':gemma_model']
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

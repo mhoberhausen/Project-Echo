@@ -168,7 +168,7 @@ class TranscriptionProcessorTest {
         file.writeBytes(ByteArray(640) { if (it % 2 == 0) 1 else 0 })
         return SessionMetadata.createTranscribing(
             durationMillis = 20,
-            transcriptionModel = TranscriptionModel.FAST,
+            transcriptionModel = TranscriptionModel.ACCURATE,
             source = SessionSource.ACTIVE_LISTENING,
             audioPath = file.absolutePath,
             id = id,

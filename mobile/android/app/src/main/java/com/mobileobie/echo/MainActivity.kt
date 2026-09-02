@@ -30,6 +30,7 @@ import com.mobileobie.echo.interpretation.GemmaTranscriptInterpreter
 import com.mobileobie.echo.interpretation.OpenAiLanTranscriptInterpreter
 import com.mobileobie.echo.interpretation.SelectedTranscriptInterpreter
 import com.mobileobie.echo.settings.AudioInputChoice
+import com.mobileobie.echo.support.SupportDeveloperUrl
 import com.mobileobie.echo.settings.AiProviderKind
 import com.mobileobie.echo.telemetry.TelemetryEvent
 import com.mobileobie.echo.ui.HuhTheme
@@ -42,6 +43,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as HuhApplication).container
+        val supportUrl = SupportDeveloperUrl.configuredUrlOrNull(
+            getString(R.string.support_developer_url),
+        )
         val onDeviceInterpreter = GemmaTranscriptInterpreter(applicationContext)
         val lanInterpreters = mutableMapOf<String, OpenAiLanTranscriptInterpreter>()
         val factory = RecorderViewModelFactory(
@@ -359,6 +363,12 @@ class MainActivity : ComponentActivity() {
                         telemetryConsent = it
                         container.telemetrySettings.consent = it
                         container.telemetry.applyConsent(it)
+                    },
+                    supportAvailable = supportUrl != null,
+                    onSupportDeveloper = {
+                        supportUrl?.let { url ->
+                            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                        }
                     },
                 )
             }

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy Policy for Huh?, an offline-first voice-capture app.">
+  <title>Privacy Policy | Huh?</title>
+  <style>
+    :root { color-scheme: light dark; --ink: #172022; --muted: #536266; --link: #006b70; --paper: #f7faf9; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 48px 24px 72px; }
+    h1, h2 { line-height: 1.2; color: inherit; }
+    h1 { margin: 0 0 8px; font-size: clamp(2rem, 6vw, 3rem); }
+    h2 { margin: 40px 0 12px; font-size: 1.35rem; }
+    p, li { max-width: 70ch; }
+    .lede, .updated { color: var(--muted); }
+    .notice { margin: 28px 0; padding: 18px 20px; border-left: 4px solid #008c91; background: color-mix(in srgb, #008c91 9%, transparent); }
+    a { color: var(--link); }
+    @media (prefers-color-scheme: dark) { :root { --ink: #e8f0ef; --muted: #b6c5c4; --link: #67d7d5; --paper: #111817; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Privacy Policy for Huh?</h1>
+    <p class="updated">Effective date: August 31, 2026</p>
+    <p class="lede">Huh? is an offline-first voice-capture app. Its core recording, transcription, speaker labeling, transcript cleanup, storage, and on-device AI features are designed to run on your device.</p>
+
+    <section class="notice" aria-label="Privacy summary">
+      <strong>The short version:</strong> Huh? does not require an account and does not send your recordings or transcripts to a cloud service. Recordings, transcripts, and on-device results stay on your device unless you choose to share content, enable an optional reporting setting, or choose to use a device or AI service on your own local network.
+    </section>
+
+    <h2>1. Who we are and how to contact us</h2>
+    <p>This Privacy Policy applies to the Huh? Android app (the “App”). The App is provided by <strong>Mobile Obie</strong> (“we,” “us,” or “our”). For privacy questions or requests, contact us at <a href="mailto:support@mobileobie.com">support@mobileobie.com</a>.</p>
+
+    <h2>2. Information the App handles</h2>
+    <p>The App handles the following information on your device when you use its features:</p>
+    <ul>
+      <li><strong>Audio recordings.</strong> The App accesses your microphone only after you grant Android microphone permission and use a recording or active-listening feature. It may also receive audio from a Huh? Puck or other device you configure.</li>
+      <li><strong>Transcripts and results.</strong> The App creates transcripts, timestamps, optional speaker labels, summaries, key points, and action items from your recordings.</li>
+      <li><strong>App content and settings.</strong> This includes saved session titles, locally assigned speaker names, recording preferences, configured local-device endpoints, and AI-provider preferences.</li>
+      <li><strong>Optional diagnostics and usage information.</strong> Only if you separately enable the relevant setting, the App may send limited crash-report or usage-insight information as described below.</li>
+    </ul>
+
+    <h2>3. How the App uses recordings and transcripts</h2>
+    <p>Huh? processes recordings and transcripts locally on your device. The bundled speech-recognition, speaker-diarization, transcript-cleanup, and Gemma interpretation features do not upload your recordings or transcripts to us or to a cloud AI provider.</p>
+    <p>The App stores saved sessions in app-private storage on your device. Temporary audio used for active listening is removed after a successful transcript is saved; failed or interrupted processing may retain temporary audio locally so that you can retry it. You can delete saved sessions from within the App. Removing the App may also remove app-private data, subject to your device and backup settings.</p>
+
+    <h2>4. Local-network devices and AI</h2>
+    <p>If you choose to configure a Huh? Puck or another local device, the App can exchange audio and device information directly with that device on your private or local network. If you choose a compatible local-network AI endpoint, the App may send the transcript you select for interpretation directly to that endpoint. The App restricts those endpoints to local or private-network addresses.</p>
+    <p>These communications are initiated by your configuration. The operator of a device or AI service on your network may have its own privacy practices; review those practices before using it. Huh? does not provide a cloud AI endpoint.</p>
+
+    <h2>5. Optional crash reports and usage insights</h2>
+    <p>Both options are off by default and can be changed independently in the App’s settings.</p>
+    <ul>
+      <li><strong>Crash reports.</strong> If you opt in, Huh? uses Firebase Crashlytics to receive crash reports and limited technical information needed to diagnose failures, such as stack traces, relevant app state, device metadata, app version, and service-generated installation or session identifiers. Huh? is designed not to attach recordings, transcript text, names, configured endpoints, credentials, or other user-provided content to these reports.</li>
+      <li><strong>Usage insights.</strong> If you opt in, Huh? uses Google Analytics for Firebase to receive aggregated app-use events, such as whether a capture or processing step started, completed, was cancelled, or failed; broad duration ranges; and whether processing was on-device or on a local network. Firebase may also process app-instance and device identifiers and technical/device information as part of providing analytics. Huh? does not send recordings, transcript text, names, configured endpoints, or credentials as custom analytics events.</li>
+    </ul>
+    <p>These services are provided by Google/Firebase and are subject to Google’s privacy terms. Disabling either option stops future collection by that feature; it does not retroactively delete information already received by the service.</p>
+
+    <h2>6. When information leaves your device</h2>
+    <p>Huh? does not sell your information and does not use your recordings or transcripts for advertising. Information can leave your device only in these circumstances:</p>
+    <ul>
+      <li>you enable optional Firebase crash reporting or usage insights;</li>
+      <li>you configure and use a local-network device or local-network AI endpoint;</li>
+      <li>you choose to share a transcript or summary using Android’s system share sheet; or</li>
+      <li>you follow an optional external support link.</li>
+    </ul>
+    <p>When you share content, the recipient app, service, or person you select controls how that content is handled.</p>
+
+    <h2>7. Permissions</h2>
+    <p>Huh? requests microphone permission to record audio. It may request notification permission so it can show the status and controls required for active listening. It uses local-network access only when you choose to connect a local device or local AI endpoint. You can manage permissions in Android Settings; turning off a permission can prevent the related feature from working.</p>
+
+    <h2>8. Data retention and security</h2>
+    <p>Local recordings, transcripts, and saved results remain on your device until you delete them or remove the App, subject to your device’s operating system and backup behavior. We do not maintain a cloud account or server copy of that content. We use reasonable safeguards in the App, including app-private storage, but no method of electronic storage or transmission is completely secure.</p>
+
+    <h2>9. Your choices</h2>
+    <ul>
+      <li>Do not grant microphone permission or turn off active listening if you do not want the App to capture audio.</li>
+      <li>Delete sessions from within the App.</li>
+      <li>Disable crash reports and usage insights in the App’s settings.</li>
+      <li>Remove or change local-device and local-AI configurations in the App’s settings.</li>
+      <li>Choose carefully before sharing transcripts or summaries with another app or service.</li>
+    </ul>
+
+    <h2>10. Children</h2>
+    <p>Huh? is not directed to children under 13. Do not use the App to record or share another person’s information unless you have the authority and any consent required by applicable law.</p>
+
+    <h2>11. Changes to this policy</h2>
+    <p>We may update this policy when the App’s practices change. We will post the updated version at this URL and revise the effective date above.</p>
+
+    <h2>12. Related privacy information</h2>
+    <ul>
+      <li><a href="https://firebase.google.com/support/privacy">Firebase Privacy and Security</a></li>
+      <li><a href="https://policies.google.com/privacy">Google Privacy Policy</a></li>
+    </ul>
+  </main>
+</body>
+</html>

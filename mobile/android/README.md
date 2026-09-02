@@ -8,8 +8,7 @@ user-configured OpenAI-compatible server on the private LAN.
 
 ## Implemented experience
 
-- **Listen Now:** explicit phone recording with Fast (`tiny.en`) or Accurate (`base.en`)
-  Whisper models.
+- **Listen Now:** explicit phone recording with the bundled Accurate (`base.en`) Whisper model.
 - **Keep an Ear Out:** foreground-service capture with VAD, configurable timing, durable
   WorkManager transcription, and visible status/notification controls.
 - **Huh? Puck:** Android-controlled capture, resumable SD-file transfer, direct Whisper
@@ -72,6 +71,14 @@ diagnostics and anonymous product insights are optional, independently controlle
 default. They never receive audio, transcripts, timestamps, speaker/session names, inferred
 content, prompts, AI responses, local endpoint addresses, credentials, or settings values.
 
+## Optional developer support
+
+Huh? has no subscription, premium tier, feature gate, quota, or donor-specific behavior. When a
+public developer-support destination is configured in `support_developer_url`, Settings exposes a
+small optional **Support Huh?** entry that opens that HTTPS address in the Android browser. The
+app does not process payments, record support activity, or send support data. The entry remains
+unavailable until a destination is explicitly configured.
+
 ## Optional Firebase diagnostics
 
 To enable the opt-in **Help improve Huh?** controls in a build, register
@@ -94,6 +101,14 @@ and LAN AI connectors are unauthenticated and should not be used on an untrusted
 - NDK 28.2.13676358, CMake 3.31.6, arm64-v8a only
 - LiteRT-LM 0.16.1
 
+## Releases
+
+Version name and version code are defined in `app/build.gradle`. Release notes are recorded in
+[`CHANGELOG.md`](CHANGELOG.md); use the matching section when creating a Git tag and its Google
+Play release. Publish signed Android App Bundles (`.aab`) through Play App Signing. Keep upload
+keystores, passwords, and local signing-property files outside this repository and out of source
+control.
+
 Run Gradle from this directory:
 
 ```powershell
@@ -115,7 +130,6 @@ Model binaries are ignored by Git and belong in `app/src/main/assets/models/`.
 Whisper:
 
 ```powershell
-app\src\main\cpp\whisper.cpp\models\download-ggml-model.cmd tiny.en app\src\main\assets\models
 app\src\main\cpp\whisper.cpp\models\download-ggml-model.cmd base.en app\src\main\assets\models
 ```
 

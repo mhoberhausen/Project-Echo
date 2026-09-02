@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">Huh?</string>
     <string name="pause_active_listening">Pause active listening</string>
+    <!-- TODO: Set a public HTTPS developer-support URL before enabling the Support Huh? action. -->
+    <string name="support_developer_url" translatable="false"></string>
 </resources>

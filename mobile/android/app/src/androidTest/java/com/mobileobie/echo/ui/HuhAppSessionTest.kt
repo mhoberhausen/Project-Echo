@@ -1,6 +1,7 @@
 package com.mobileobie.echo.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -119,6 +120,77 @@ class HuhAppSessionTest {
     }
 
     @Test
+    fun supportIsOptionalAndConfiguredActionStaysWithinSettingsNavigation() {
+        var supportOpened = false
+        composeRule.setContent {
+            HuhTheme {
+                HuhApp(
+                    recorderState = RecorderUiState(),
+                    sessions = emptyList(),
+                    darkTheme = false,
+                    silenceSeconds = 15f,
+                    onDarkThemeChanged = {},
+                    onSilenceSecondsChanged = {},
+                    onRecord = {},
+                    onStop = {},
+                    onClear = {},
+                    onModelSelected = {},
+                    onProcess = {},
+                    onCancelRecording = {},
+                    onDeleteSession = {},
+                    onProcessSession = {},
+                    onShareSession = {},
+                    supportAvailable = true,
+                    onSupportDeveloper = { supportOpened = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
+        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.onNodeWithText("Support the developer").performScrollTo().performClick()
+        composeRule.onNodeWithText("Enjoying Huh??").assertIsDisplayed()
+        composeRule.onNodeWithText("Huh? is free to use. If you'd like to support continued development, you can leave a tip.")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Support the developer").performClick()
+        composeRule.runOnIdle { assertEquals(true, supportOpened) }
+        composeRule.onNodeWithContentDescription("Navigate back").performClick()
+        composeRule.onNodeWithText("Appearance").assertIsDisplayed()
+    }
+
+    @Test
+    fun unconfiguredSupportIsUnavailableWithoutChangingSettings() {
+        composeRule.setContent {
+            HuhTheme {
+                HuhApp(
+                    recorderState = RecorderUiState(),
+                    sessions = emptyList(),
+                    darkTheme = false,
+                    silenceSeconds = 15f,
+                    onDarkThemeChanged = {},
+                    onSilenceSecondsChanged = {},
+                    onRecord = {},
+                    onStop = {},
+                    onClear = {},
+                    onModelSelected = {},
+                    onProcess = {},
+                    onCancelRecording = {},
+                    onDeleteSession = {},
+                    onProcessSession = {},
+                    onShareSession = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
+        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.onNodeWithText("Support the developer").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("Developer support is not configured in this build.")
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    @Test
     fun externalDeviceSettingsExplainPocAndSubmitValidatedEndpoint() {
         var connectedEndpoint: ExternalDeviceEndpoint? = null
         composeRule.setContent {
@@ -206,7 +278,7 @@ class HuhAppSessionTest {
             originalTranscript = "A saved transcript.",
             processText = null,
             tags = emptyList(),
-            transcriptionModel = TranscriptionModel.FAST,
+            transcriptionModel = TranscriptionModel.ACCURATE,
         )
         var processedSessionId: String? = null
 
@@ -255,7 +327,7 @@ class HuhAppSessionTest {
             originalTranscript = "Original transcript.",
             processText = "Existing inference.",
             tags = listOf("Example"),
-            transcriptionModel = TranscriptionModel.FAST,
+            transcriptionModel = TranscriptionModel.ACCURATE,
         )
         var edited: Pair<String, String>? = null
 
@@ -310,7 +382,7 @@ class HuhAppSessionTest {
             originalTranscript = "Speaker 1: Hello.\nSpeaker 2: Hi.",
             processText = null,
             tags = emptyList(),
-            transcriptionModel = TranscriptionModel.FAST,
+            transcriptionModel = TranscriptionModel.ACCURATE,
             transcriptSegments = listOf(
                 TranscriptSegment(0, 900, "Hello.", "speaker-1"),
                 TranscriptSegment(1_000, 1_900, "Hi.", "speaker-2"),
@@ -370,7 +442,7 @@ class HuhAppSessionTest {
             originalTranscript = "Transcript content only.",
             processText = "Inferred content only.",
             tags = listOf("Example"),
-            transcriptionModel = TranscriptionModel.FAST,
+            transcriptionModel = TranscriptionModel.ACCURATE,
         )
         var renamed: Pair<String, String>? = null
         var shared: String? = null

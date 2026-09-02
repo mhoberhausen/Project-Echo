@@ -73,8 +73,6 @@ fun RecorderScreen(
                         color = MaterialTheme.colors.primary,
                         fontWeight = FontWeight.Bold,
                     )
-                    Spacer(Modifier.height(20.dp))
-                    ModelSelector(state.selectedModel, onModelSelected)
                 }
                 RecordingPhase.RECORDING -> {
                     ListeningMark(true, Modifier.size(144.dp), HuhListening)
@@ -110,19 +108,6 @@ fun RecorderScreen(
                     color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
                     fontSize = 13.sp,
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelSelector(selected: TranscriptionModel, onSelected: (TranscriptionModel) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        TranscriptionModel.entries.forEach { model ->
-            if (model == selected) {
-                Button(onClick = { onSelected(model) }) { Text(model.displayName) }
-            } else {
-                OutlinedButton(onClick = { onSelected(model) }) { Text(model.displayName) }
             }
         }
     }

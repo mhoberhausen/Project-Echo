@@ -396,6 +396,7 @@ class ActiveListeningService : Service() {
         transcriptionModel: TranscriptionModel? = null,
         durableCapture: DurableCapture? = null,
     ) {
+        var sessionWasPersisted = false
         runCatching {
             val durableSession = durableCapture?.let { durable ->
                 durable.created.join()
@@ -410,6 +411,7 @@ class ActiveListeningService : Service() {
                     transcriptSegments = precomputedTranscript?.segments.orEmpty(),
                 )
                 container.sessionRepository.updateCapturedSession(finalized)
+                sessionWasPersisted = true
                 finalized
             }
             val session = durableSession ?: SessionMetadata.createTranscribing(
@@ -425,10 +427,15 @@ class ActiveListeningService : Service() {
                 externalDevice = externalMetadata,
                 transcriptSegments = precomputedTranscript?.segments.orEmpty(),
             )
-            container.sessionRepository.create(session)
+            if (durableSession == null) {
+                container.sessionRepository.create(session)
+                sessionWasPersisted = true
+            }
             container.transcriptionQueue.enqueue(session)
         }.onFailure { error ->
-            audio.file.delete()
+            // A persisted session can recover and requeue after a process restart. Keep its
+            // PCM instead of turning a transient queue failure into permanent data loss.
+            if (!sessionWasPersisted) audio.file.delete()
             Log.e(TAG, "Could not queue active conversation", error)
             showError("The conversation could not be saved")
         }

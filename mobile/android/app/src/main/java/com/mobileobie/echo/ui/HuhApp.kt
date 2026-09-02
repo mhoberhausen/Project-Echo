@@ -80,7 +80,7 @@ import com.mobileobie.echo.settings.AudioInputChoice
 import com.mobileobie.echo.settings.TelemetryConsent
 import kotlinx.coroutines.launch
 
-private enum class AppDestination { HOME, MANUAL, LIVE, SESSION, PREFERENCES, ADVANCED, EXTERNAL_DEVICE, AI_SELECTION, TELEMETRY }
+private enum class AppDestination { HOME, MANUAL, LIVE, SESSION, PREFERENCES, ADVANCED, EXTERNAL_DEVICE, AI_SELECTION, TELEMETRY, SUPPORT }
 private enum class ChatFilter(val label: String) { ALL("All"), PENDING("Unprocessed"), PROCESSED("Processed") }
 
 @Composable
@@ -132,6 +132,8 @@ fun HuhApp(
     onAiProvidersChanged: (List<AiProviderConfig>) -> Unit = {},
     telemetryConsent: TelemetryConsent = TelemetryConsent(),
     onTelemetryConsentChanged: (TelemetryConsent) -> Unit = {},
+    supportAvailable: Boolean = false,
+    onSupportDeveloper: () -> Unit = {},
 ) {
     var destination by remember {
         mutableStateOf(if (openActiveListening) AppDestination.LIVE else AppDestination.HOME)
@@ -156,7 +158,8 @@ fun HuhApp(
     }
     val navigateBack: () -> Unit = {
         if (destination == AppDestination.ADVANCED || destination == AppDestination.EXTERNAL_DEVICE ||
-            destination == AppDestination.AI_SELECTION || destination == AppDestination.TELEMETRY
+            destination == AppDestination.AI_SELECTION || destination == AppDestination.TELEMETRY ||
+            destination == AppDestination.SUPPORT
         ) {
             destination = AppDestination.PREFERENCES
         }
@@ -276,6 +279,8 @@ fun HuhApp(
                         onExternalDevice = { destination = AppDestination.EXTERNAL_DEVICE },
                         onAiSelection = { destination = AppDestination.AI_SELECTION },
                         onTelemetry = { destination = AppDestination.TELEMETRY },
+                        supportAvailable = supportAvailable,
+                        onSupport = { destination = AppDestination.SUPPORT },
                     )
                     AppDestination.ADVANCED -> AdvancedPreferencesScreen(
                         speechStartThresholdMs = speechStartThresholdMs,
@@ -307,6 +312,10 @@ fun HuhApp(
                     AppDestination.TELEMETRY -> TelemetryPreferencesScreen(
                         consent = telemetryConsent,
                         onConsentChanged = onTelemetryConsentChanged,
+                    )
+                    AppDestination.SUPPORT -> SupportHuhScreen(
+                        supportAvailable = supportAvailable,
+                        onSupportDeveloper = onSupportDeveloper,
                     )
                 }
             }
@@ -340,6 +349,7 @@ private val AppDestination.title: String
         AppDestination.EXTERNAL_DEVICE -> "External Device"
         AppDestination.AI_SELECTION -> "AI Selection"
         AppDestination.TELEMETRY -> "Help improve Huh?"
+        AppDestination.SUPPORT -> "Support Huh?"
     }
 
 @Composable
@@ -917,6 +927,8 @@ private fun PreferencesScreen(
     onExternalDevice: () -> Unit,
     onAiSelection: () -> Unit,
     onTelemetry: () -> Unit,
+    supportAvailable: Boolean,
+    onSupport: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)
@@ -929,18 +941,6 @@ private fun PreferencesScreen(
             }
             Switch(checked = darkTheme, onCheckedChange = onDarkThemeChanged)
         }
-        Divider(Modifier.padding(vertical = 20.dp))
-        PreferenceHeading("Transcription model")
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TranscriptionModel.entries.forEach { model ->
-                if (model == selectedModel) {
-                    Button(onClick = { onModelSelected(model) }) { Text(model.displayName) }
-                } else {
-                    OutlinedButton(onClick = { onModelSelected(model) }) { Text(model.displayName) }
-                }
-            }
-        }
-        Text("Used for the next Listen Now or Keep an Ear Out transcription.", modifier = Modifier.padding(top = 8.dp))
         Divider(Modifier.padding(vertical = 20.dp))
         PreferenceHeading("Active Listening")
         OutlinedButton(onClick = onAdvanced, modifier = Modifier.fillMaxWidth()) {
@@ -977,8 +977,50 @@ private fun PreferencesScreen(
             Text("Help improve Huh?")
         }
         Text("Choose whether to share anonymous diagnostics or usage insights.", modifier = Modifier.padding(top = 8.dp))
+        Divider(Modifier.padding(vertical = 20.dp))
+        PreferenceHeading("Support Huh?")
+        OutlinedButton(
+            onClick = onSupport,
+            enabled = supportAvailable,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Support the developer")
+        }
+        Text(
+            if (supportAvailable) "Optional. Huh? is fully free to use."
+            else "Developer support is not configured in this build.",
+            modifier = Modifier.padding(top = 8.dp),
+        )
         Spacer(Modifier.height(12.dp))
         Text("Active Listening preferences are saved on this device. Appearance currently resets when the app closes.")
+    }
+}
+
+@Composable
+private fun SupportHuhScreen(
+    supportAvailable: Boolean,
+    onSupportDeveloper: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
+        Text("Enjoying Huh??", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text(
+            "Huh? is free to use. If you'd like to support continued development, you can leave a tip.",
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Button(
+            onClick = onSupportDeveloper,
+            enabled = supportAvailable,
+            modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+        ) {
+            Text("Support the developer")
+        }
+        if (!supportAvailable) {
+            Text("Support is not configured in this build.", modifier = Modifier.padding(top = 8.dp))
+        }
+        Text(
+            "Thank you for helping keep Huh? evolving.",
+            modifier = Modifier.padding(top = 20.dp),
+        )
     }
 }
 

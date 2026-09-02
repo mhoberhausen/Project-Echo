@@ -12,7 +12,7 @@ class SessionRecordTest {
             transcript = "Concise transcript",
             originalTranscript = "Um, concise transcript",
             transcriptSegments = listOf(TranscriptSegment(0, 1_200, "Um, concise transcript")),
-            transcriptionModel = TranscriptionModel.FAST,
+            transcriptionModel = TranscriptionModel.ACCURATE,
             nowUtcMillis = 1_704_067_200_000,
             zoneId = ZoneId.of("America/New_York"),
             id = "session-1",

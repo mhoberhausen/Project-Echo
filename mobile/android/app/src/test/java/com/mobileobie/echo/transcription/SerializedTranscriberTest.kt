@@ -31,9 +31,9 @@ class SerializedTranscriberTest {
         val audio = RecordedAudio(shortArrayOf(1), 16_000)
 
         listOf(
-            async { serialized.transcribe(audio, TranscriptionModel.FAST) },
-            async { serialized.transcribe(audio, TranscriptionModel.FAST) },
-            async { serialized.transcribe(audio, TranscriptionModel.FAST) },
+            async { serialized.transcribe(audio, TranscriptionModel.ACCURATE) },
+            async { serialized.transcribe(audio, TranscriptionModel.ACCURATE) },
+            async { serialized.transcribe(audio, TranscriptionModel.ACCURATE) },
         ).awaitAll()
 
         assertEquals(1, maximumConcurrentCalls.get())
