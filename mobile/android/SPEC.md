@@ -17,7 +17,8 @@ Local Voice Interpreter is an offline-first Android application idea focused on 
 
 ## Milestone 1 Implementation Status
 
-Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
+Release baseline: 0.1.1 is awaiting Google Play review. It was built and launched on a Pixel 8
+Pro running Android 17 on 2026-09-01.
 
 ### Completed
 
@@ -52,19 +53,28 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
 
 ### Remaining
 
-- [ ] Reintroduce Huh? Puck live capture only after its release-ready foreground-service and
-  device-association design is complete. It is deliberately unavailable in the 0.1.1 release.
-
 - [ ] Add live partial transcript display. Listen Now and Keep an Ear Out already transcribe
   quiet-delimited chunks serially while recording continues, using the persisted 1,000 ms
   default quiet boundary. They fall back to a full post-capture pass if VAD finds no chunks,
   Whisper disagrees with VAD, a chunk fails, or the bounded backlog fills. Active captures
   are persisted before incremental work completes and recover through the durable local queue.
   Full-audio diarization remains post-capture.
-- [ ] Run and document the complete workflow in Airplane Mode
-- [ ] Run and document a two-minute recording stability test
 - [ ] Exercise all specified model, transcription, and malformed-JSON error paths
 - [ ] Tighten the prompt to require summaries of at most three sentences and exact name preservation
+
+### Full test evaluation
+
+- [ ] Complete the repeatable [full test evaluation](docs/test/test-validation.md) and
+  record evidence or an explicit release exception for every case.
+
+### Future scope, deliberately excluded from 0.1.1
+
+- [ ] Reintroduce Huh? Puck live capture only after its release-ready foreground-service and
+  device-association design is complete.
+- [ ] Add authenticated Puck association and discovery after the firmware control/identity
+  contract is frozen.
+- [ ] Evaluate bundling Silero VAD behind the existing abstraction if real-world tuning shows the
+  heuristic detector is insufficient.
 
 ## Huh? Rebrand and Experience
 
@@ -103,8 +113,9 @@ bitmap.
   Listening, Paused, and Error states
 - [x] Implement the foreground-service Active Listening foundation, local VAD,
   conversation segmentation, durable audio handoff, and serial Whisper queue
-- [ ] Add a longer About/privacy explanation and persist Settings locally
-- [ ] Add notification-specific monochrome branding when notifications are implemented
+- [ ] Add a longer in-app About/privacy explanation. The published policy is
+  [mobileobie.com/apps/huh/privacy](https://mobileobie.com/apps/huh/privacy/).
+- [x] Use the monochrome Huh? notification icon for Active Listening and local transcription.
 
 ## UI/UX Pivot: Mode-Based App Shell
 
@@ -182,8 +193,6 @@ Compose UI while avoiding an additional annotation-processor toolchain for the P
 - [x] Keep transcription history when Gemma processing fails.
 - [x] Persist explicit Queued, Processing, Processed, and Failed transitions.
 - [x] Mark a session Processed only after its processed text and tags are committed.
-- [ ] Move queued work to a durable background processor; the current Process action
-  executes the queue immediately in the foreground.
 - [ ] Add retry/cancel controls and a dedicated processing-queue view.
 
 Session persistence, naming, filtering, and restoration belong to the conversation-history
@@ -267,26 +276,9 @@ after the user selects **Make sense of this** from a ready session.
 - [x] Persist local timing instrumentation for total audio, cumulative speech, distinct
   speech segments, longest internal silence followed by resumed speech, and the configured
   conversation-ending threshold
-- [x] Source-aware shared session model (`MANUAL`, `ACTIVE_LISTENING`, `EXTERNAL_DEVICE`)
-  with legacy stored `XIAO` values mapped to the hardware-neutral external source
-- [x] Versioned, hardware-neutral Huh? Audio Protocol v1 with bounded framing, canonical
-  PCM validation, stream identity, duplicate suppression, and explicit gap handling
-- [x] Android-controlled external capture lifecycle: issue `START`, renew the five-second
-  heartbeat lease, send reasoned `STOP` for Pause/Turn Off, and wait for device finalization
-- [x] Resumable microSD transfer using `FETCH`/offset-tagged `FILE_CHUNK`/`FILE_END`, with
-  local byte-count and PCM-alignment verification before `ACK` authorizes device deletion
-- [x] Keep external capture independent from downstream Whisper processing: capture is
-  finalized on the device first, transferred as raw PCM, and queued directly for Whisper
-  without applying the phone microphone's VAD/minimum-speech gate a second time
-- [x] Bounded local-TCP PCM source plus persistent universal device, firmware, transport,
-  stream, gap, reconnect, overrun, degradation, and interruption metadata
-- [x] Local-device socket permissions (`INTERNET` and Android 17 `ACCESS_LOCAL_NETWORK`)
-  with no cloud service or remote endpoint
-- [x] User-visible trusted-LAN endpoint configuration, Android 17 local-network permission
-  request, connected-device foreground-service operation, pause/off controls, bounded
-  reconnect backoff, and honest connection/error states in the UI and notification
-- [ ] Replace manual trusted-LAN endpoint entry with authenticated device association and
-  discovery after the firmware BLE control/identity contract is frozen
+> **Historical Puck prototype:** the completed trusted-LAN Puck prototype is retained in this
+> history only. Its TCP streaming/reconnect and connected-device foreground-service path are not
+> shipped in 0.1.1; Puck work is tracked under Future scope above.
 - [x] Distinct Transcribing, Transcription failed, transcript-ready, and Gemma processing
   states in history; Gemma is never invoked automatically
 - [x] Active Listening screen, Home status copy, queued-transcription indicator, privacy
@@ -302,21 +294,10 @@ after the user selects **Make sense of this** from a ready session.
 - [x] No cloud dependency or remote endpoint; Android's `INTERNET` permission is used only
   for a direct socket to the user-configured device on the local network
 
-### Device validation and tuning still required
+### Device validation and tuning
 
-- [ ] Validate foreground capture with the app backgrounded and screen off on the Pixel 8 Pro
-- [ ] Validate notification Pause, Resume, Turn Off, permission denial/revocation, and
-  microphone privacy controls on Android 17
-- [ ] Tune false positives and misses against real speech, television, music, HVAC, traffic,
-  keyboards, and route changes; the heuristic VAD is replaceable and not yet equivalent to
-  a trained human-speech classifier
-- [ ] Evaluate bundling Silero VAD behind the existing abstraction if real-world tuning is
-  insufficient
-- [ ] Measure extended battery use, thermals, Whisper backlog behavior, and long-conversation
-  memory/storage limits
-- [ ] Validate Bluetooth/headset route changes, competing microphone users, low storage,
-  process death recovery, and the no-auto-start-after-reboot behavior
-- [ ] Run and document the full Active Listening workflow in Airplane Mode
+The current post-release validation checklist above is the source of truth for outstanding
+device validation and VAD tuning work.
 
 ## Original Idea
 
@@ -750,7 +731,13 @@ The application shall:
 - Never upload transcripts.
 - Never require login.
 - Function in Airplane Mode.
-- Request only microphone permission.
+- Request microphone and notification permission only when the user enables visible phone Active
+  Listening. Android 17 local-network permission is requested only for a user-enabled private-LAN
+  AI provider.
+- Keep optional crash diagnostics and anonymous usage insights off until separately enabled; they
+  never include conversation content or identifying local settings.
+- Publish and maintain the user-facing policy at
+  [mobileobie.com/apps/huh/privacy](https://mobileobie.com/apps/huh/privacy/).
 
 ---
 
@@ -799,7 +786,7 @@ Milestone 2
 - [x] App-private SQLite persistence
 - [x] UTC timestamps with local-time display
 - [x] Rename and transcript-edit UI
-- [ ] Durable background processing queue
+- [x] Durable WorkManager background queue for local transcription
 
 Milestone 3
 
