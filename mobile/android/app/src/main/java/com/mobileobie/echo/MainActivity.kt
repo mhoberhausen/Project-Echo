@@ -156,16 +156,10 @@ class MainActivity : ComponentActivity() {
                     ) == PackageManager.PERMISSION_GRANTED
                 val endpoint = pendingExternalEndpoint
                 pendingExternalEndpoint = null
-                if (localNetworkGranted && notificationGranted && endpoint != null) {
-                    ActiveListeningController.turnOnExternal(this, endpoint)
-                } else {
+                if (endpoint != null) {
                     ActiveListeningRuntime.update(
                         ActiveListeningState.ERROR,
-                        if (!localNetworkGranted) {
-                            "Local network permission is required to connect to the external device."
-                        } else "Notification permission is required so the connection remains visible.",
-                        source = ActiveListeningSource.EXTERNAL_DEVICE,
-                        sourceName = endpoint?.displayName,
+                        "Huh? Puck live capture is not available in this release.",
                     )
                 }
             }
@@ -330,7 +324,10 @@ class MainActivity : ComponentActivity() {
                         }
                         if (permissions.isEmpty()) {
                             pendingExternalEndpoint = null
-                            ActiveListeningController.turnOnExternal(this, endpoint)
+                            ActiveListeningRuntime.update(
+                                ActiveListeningState.ERROR,
+                                "Huh? Puck live capture is not available in this release.",
+                            )
                         } else externalPermissionLauncher.launch(permissions.toTypedArray())
                     },
                     onForgetExternalDevice = {
@@ -349,7 +346,10 @@ class MainActivity : ComponentActivity() {
                             }
                             if (permissions.isEmpty()) {
                                 pendingExternalEndpoint = null
-                                ActiveListeningController.turnOnExternal(this, externalEndpoint)
+                                ActiveListeningRuntime.update(
+                                    ActiveListeningState.ERROR,
+                                    "Huh? Puck live capture is not available in this release.",
+                                )
                             } else externalPermissionLauncher.launch(permissions.toTypedArray())
                         }
                     },

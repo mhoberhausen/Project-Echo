@@ -39,8 +39,8 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
   donation processing, feature gate, quota, premium state, or support tracking.
   `INTERNET` and Android
   17 local-network access are limited to user-configured private-LAN device/AI endpoints
-- [x] Persist an audio-input picker for the phone or configured Huh? Puck, with an honest
-  Bluetooth setup placeholder until Bluetooth capture is implemented
+- [x] Persist an audio-input picker for the phone, with an honest Bluetooth setup placeholder.
+  Huh? Puck live capture is not included in the 0.1.1 Play release.
 - [x] Provide a nested AI Selection settings page with persistent enablement and drag ordering;
   bundled Gemma and unauthenticated OpenAI-compatible private-LAN endpoints execute in priority
   order with fallback, while third-party/cloud entries remain configuration-only
@@ -51,6 +51,9 @@ Last verified on a Pixel 8 Pro running Android 17 on 2026-08-21.
   cleanup, databases, and preferences cannot alter normal app sessions or AI endpoints
 
 ### Remaining
+
+- [ ] Reintroduce Huh? Puck live capture only after its release-ready foreground-service and
+  device-association design is complete. It is deliberately unavailable in the 0.1.1 release.
 
 - [ ] Add live partial transcript display. Listen Now and Keep an Ear Out already transcribe
   quiet-delimited chunks serially while recording continues, using the persisted 1,000 ms

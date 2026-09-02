@@ -1,7 +1,7 @@
 # Huh? Android
 
 Huh? is an offline-first Android conversation-memory app targeting a Pixel 8 Pro on Android
-17. It records or receives 16 kHz mono PCM, transcribes locally with `whisper.cpp`, optionally
+17. It records 16 kHz mono PCM, transcribes locally with `whisper.cpp`, optionally
 assigns speakers with sherpa-onnx, removes only high-confidence filler words, stores sessions
 in app-private SQLite, and optionally interprets a transcript with bundled Gemma 3 1B or a
 user-configured OpenAI-compatible server on the private LAN.
@@ -11,8 +11,7 @@ user-configured OpenAI-compatible server on the private LAN.
 - **Listen Now:** explicit phone recording with the bundled Accurate (`base.en`) Whisper model.
 - **Keep an Ear Out:** foreground-service capture with VAD, configurable timing, durable
   WorkManager transcription, and visible status/notification controls.
-- **Huh? Puck:** Android-controlled capture, resumable SD-file transfer, direct Whisper
-  queueing, and persisted device/stream diagnostics over a user-selected trusted LAN.
+- **Huh? Puck:** live Puck capture is not included in the 0.1.1 Play release.
 - **Transcripts:** original and cleaned text, Whisper segment timestamps, optional speaker
   labels, one line per speaker turn, editing, and custom speaker names.
 - **Sessions:** app-private history, status filtering, processing retry, sharing, and deletion.
@@ -39,8 +38,7 @@ WhisperTranscriber -> SpeakerDiarizer -> TranscriptCleaner
 SelectedTranscriptInterpreter -> private-LAN OpenAI API -> bundled Gemma fallback
 
 ActiveListeningService
-  |- phone StreamingAudioCapture -> VAD / ConversationDetector
-  `- TcpExternalPcmSource -> finalized Puck PCM (bypasses phone VAD)
+  `- phone StreamingAudioCapture -> VAD / ConversationDetector
 ```
 
 Important boundaries:
@@ -52,7 +50,7 @@ Important boundaries:
   concurrent manual/background use.
 - `SessionRepository` is the persistence boundary. Manual transcript edits intentionally
   clear timestamps/speaker segments; transcript or speaker edits invalidate stale inference.
-- `SelectionSettings`, `ActiveListeningSettings`, and `ExternalDeviceSettings` hold small
+- `SelectionSettings` and `ActiveListeningSettings` hold small
   local preferences. Recordings and transcript content remain in app-private storage.
 
 ## Privacy and permissions
@@ -63,7 +61,7 @@ The app declares:
 - foreground-service and notification permissions for visible active listening and local
   transcription work.
 - `ACCESS_LOCAL_NETWORK` on Android 17 and `INTERNET` for direct communication with the
-  user-configured Puck or private-LAN AI endpoint, plus optional Firebase reporting after
+  private-LAN AI endpoint, plus optional Firebase reporting after
   the user explicitly enables it.
 
 There is no account system, cloud transcription, or cloud-LLM connector. Firebase crash
@@ -89,8 +87,8 @@ The app disables Firebase Analytics and Crashlytics by default in its manifest; 
 enable each switch separately in Settings. Do not add Analytics breadcrumbs, custom user IDs,
 custom keys/logs containing user data, or advertising integrations.
 Cleartext traffic is enabled for user-selected LAN endpoints, while application validation
-rejects LAN AI hosts that resolve outside private/local address ranges. The trusted-LAN Puck
-and LAN AI connectors are unauthenticated and should not be used on an untrusted network.
+rejects LAN AI hosts that resolve outside private/local address ranges. LAN AI connectors are
+unauthenticated and should not be used on an untrusted network.
 
 ## Toolchain
 

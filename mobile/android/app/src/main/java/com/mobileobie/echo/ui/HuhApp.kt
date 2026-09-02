@@ -965,7 +965,7 @@ private fun PreferencesScreen(
             Text("Configure Huh? Puck")
         }
         Text(
-            "Receive audio from a compatible device over your local network.",
+            "Huh? Puck live capture is not included in this release.",
             modifier = Modifier.padding(top = 8.dp),
         )
         Divider(Modifier.padding(vertical = 20.dp))
@@ -1106,10 +1106,9 @@ private fun ExternalDeviceScreen(
             shape = RoundedCornerShape(12.dp),
         ) {
             Column(Modifier.padding(16.dp)) {
-                Text("Trusted-LAN POC", fontWeight = FontWeight.Bold)
+                Text("Not available in this release", fontWeight = FontWeight.Bold)
                 Text(
-                    "Enter the address reported by the device firmware. Audio stays on your local network. " +
-                        "Secure BLE pairing is not available until the firmware control contract is finalized.",
+                    "Puck setup is retained for future compatibility, but live Puck capture cannot be started in this release.",
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
@@ -1171,8 +1170,9 @@ private fun ExternalDeviceScreen(
         } else {
             Button(
                 onClick = { enteredEndpoint()?.let { validationError = null; onSave(it); onConnect(it) } },
+                enabled = false,
                 modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
-            ) { Text("Save and connect") }
+            ) { Text("Live capture unavailable") }
         }
         OutlinedButton(
             onClick = {

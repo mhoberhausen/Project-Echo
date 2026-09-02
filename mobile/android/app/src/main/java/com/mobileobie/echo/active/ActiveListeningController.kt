@@ -3,26 +3,12 @@ package com.mobileobie.echo.active
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
-import com.mobileobie.echo.external.ExternalDeviceEndpoint
 
 object ActiveListeningController {
     fun turnOn(context: Context) {
         ContextCompat.startForegroundService(
             context,
             Intent(context, ActiveListeningService::class.java).setAction(ActiveListeningService.ACTION_START),
-        )
-    }
-
-    fun turnOnExternal(context: Context, endpoint: ExternalDeviceEndpoint) {
-        val valid = endpoint.validated()
-        ContextCompat.startForegroundService(
-            context,
-            Intent(context, ActiveListeningService::class.java)
-                .setAction(ActiveListeningService.ACTION_START_EXTERNAL)
-                .putExtra(ActiveListeningService.EXTRA_HOST, valid.host)
-                .putExtra(ActiveListeningService.EXTRA_PORT, valid.port)
-                .putExtra(ActiveListeningService.EXTRA_DEVICE_ID, valid.expectedDeviceId)
-                .putExtra(ActiveListeningService.EXTRA_DEVICE_NAME, valid.displayName),
         )
     }
 
