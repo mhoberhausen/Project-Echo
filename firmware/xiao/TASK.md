@@ -55,7 +55,7 @@ firmware's bounded audio queue filled faster than the TCP sender drained it.
 Observed evidence:
 
 ```text
-Android receiver connected from 192.0.2.2.
+Android receiver connected from a local-LAN address (redacted here).
 State: READY
 Receiver disconnected; completed=0 interrupted=8 overruns=273
 ```

@@ -35,7 +35,7 @@ constexpr uint16_t kDiagnosticPort = 8766;
 constexpr uint32_t kDiagnosticIntervalMs = 2000;
 constexpr uint16_t kOtaPort = 3232;
 #ifndef HUH_OTA_PASSWORD
-#define HUH_OTA_PASSWORD "REDACTED_CREDENTIAL"
+#define HUH_OTA_PASSWORD "REPLACE_WITH_LOCAL_OTA_PASSWORD"
 #endif
 constexpr char kOtaPassword[] = HUH_OTA_PASSWORD;
 constexpr uint32_t kHeartbeatIntervalMs = 5000;
@@ -67,10 +67,10 @@ constexpr bool kConnectionTestLedActiveLow = true;
 // Development pairing PIN. Override with -DHUH_BLE_STATIC_PASSKEY=<six digits>.
 // Set HUH_BLE_USE_STATIC_PASSKEY=0 to generate a new PIN at each boot.
 #ifndef HUH_BLE_USE_STATIC_PASSKEY
-#define HUH_BLE_USE_STATIC_PASSKEY 1
+#define HUH_BLE_USE_STATIC_PASSKEY 0
 #endif
 #ifndef HUH_BLE_STATIC_PASSKEY
-#define HUH_BLE_STATIC_PASSKEY REDACTED_CREDENTIAL
+#define HUH_BLE_STATIC_PASSKEY 0
 #endif
 constexpr bool kBleUseStaticPasskey = HUH_BLE_USE_STATIC_PASSKEY != 0;
 constexpr uint32_t kBleStaticPasskey = HUH_BLE_STATIC_PASSKEY;

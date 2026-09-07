@@ -112,10 +112,10 @@ The Android UI can label this action `Test device` or `Find my Huh?`.
 
 ## BLE pairing
 
-The current personal-POC firmware uses the fixed six-digit PIN:
+The public-safe firmware generates a six-digit PIN at boot and reports it over USB serial:
 
 ```text
-REDACTED_CREDENTIAL
+generated at boot
 ```
 
 It can be changed with `HUH_BLE_STATIC_PASSKEY`. Set

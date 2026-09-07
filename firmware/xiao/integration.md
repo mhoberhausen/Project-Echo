@@ -35,14 +35,14 @@ session persistence, and Whisper validation remain outstanding.
 ### Verified hardware checkpoint (2026-08-24)
 
 - The supplied external Wi-Fi/Bluetooth antenna was installed on the XIAO's IPEX connector.
-- The XIAO joined a 2.4 GHz WPA2-PSK LAN and received DHCP address `192.0.2.1`.
+- The XIAO joined a 2.4 GHz WPA2-PSK LAN and received a DHCP address (redacted here).
 - Signal strength measured `-47 dBm` after antenna installation.
 - The TCP server listened on port `8765` and was reachable from another LAN computer.
 - The first received envelope was a valid `HUH1` protocol-v1 `HELLO` message (`type=1`,
   payload length 83 bytes).
 - The installed microSD card passed the physical recording test: `/test.wav` was reopened
   and verified at exactly 320,044 bytes (44-byte header plus 320,000 audio bytes).
-- `192.0.2.1` is the address observed in this test session, not a protocol constant.
+- The device address observed during testing is not a protocol constant; use the address printed by `wifi status`.
   Android should use the current address printed by `wifi status`; DHCP may change it.
 - Before the antenna was installed, scans could see the SSID weakly but association ended
   with `AUTH_EXPIRE`/`ASSOC_EXPIRE`. Seeed warns that this model may be unable to connect
@@ -133,7 +133,7 @@ Connect a PlatformIO monitor directly to the current address:
 pio device monitor --port socket://192.0.2.1:8766
 ```
 
-`192.0.2.1` is the currently observed DHCP address, not a protocol guarantee. If it
+`192.0.2.1` is a documentation-only placeholder, not a device address. If the actual address
 changes, obtain the new address from the router/DHCP client list or USB `wifi status`.
 Because mDNS is intentionally disabled, clients must not depend on a `.local` hostname.
 
@@ -143,9 +143,9 @@ After an initial USB installation, PlatformIO can update the firmware directly b
 pio run -e xiao_esp32s3_sense_ota -t upload
 ```
 
-The `xiao_esp32s3_sense_ota` environment currently targets `192.0.2.1`, UDP port
-`3232`, and the development OTA PIN `REDACTED_CREDENTIAL`. The firmware default and PlatformIO
-`--auth` value must be changed together. This fixed PIN is suitable only for the present
+The `xiao_esp32s3_sense_ota` environment uses the documentation address `192.0.2.1`, UDP port
+`3232`, and a locally configured OTA password. The firmware default and PlatformIO
+`--auth` value must be set together and kept out of source control. This password is suitable only for the present
 private trusted-LAN prototype; a production credential must be unique, locally
 provisioned, and excluded from source control and logs.
 
@@ -157,11 +157,11 @@ the recovery path for a failed, incompatible, or network-inaccessible image.
 
 ### Verified wireless checkpoint (2026-09-02)
 
-- PlatformIO connected to the diagnostics endpoint at `192.0.2.1:8766` while the
+- PlatformIO connected to the diagnostics endpoint at the device's local address while the
   XIAO was powered only by its LiPo battery.
 - The device reported `READY`, mounted SD storage, stable RSSI near `-52 dBm`, OTA ready,
   and no completed or interrupted streams.
-- An authenticated full firmware upload to `192.0.2.1:3232` completed successfully.
+- An authenticated full firmware upload to the device's local OTA endpoint completed successfully.
 - The device rebooted and the diagnostics endpoint became reachable again without USB or
   mDNS.
 
@@ -420,7 +420,7 @@ The provisional version-1 BLE service is implemented with these UUIDs:
 The identity value is `v1|device_id|model|firmware_version`. Commands use the bounded
 `HHC1 | request_id_u32_le | verb` envelope. Pairing requires bonding, Secure Connections,
 MITM protection, and a configurable six-digit passkey. Development builds currently use
-static PIN `REDACTED_CREDENTIAL`; `HUH_BLE_USE_STATIC_PASSKEY=0` restores a boot-generated PIN shown only
+static PIN supplied locally; `HUH_BLE_USE_STATIC_PASSKEY=0` restores a boot-generated PIN shown only
 over USB serial.
 `STATUS`, `PAUSE`, `STOP`, and `PLAY_TEST_SOUND` are wired; `START` and `RESUME` currently return
 `TCP_START_REQUIRED` because stream ownership and the renewable control lease must be
@@ -504,7 +504,7 @@ retry behavior. Delete malformed, empty, or ineligible temporary files.
 
 Before declaring the integration complete, verify on the Pixel 8 Pro running Android 17:
 
-- current manual endpoint for the next test: `192.0.2.1:8765` (reconfirm with
+- current manual endpoint for the next test: `192.0.2.1:8765` (replace with the current device address and reconfirm with
   `wifi status` first because DHCP may change it);
 
 - pairing, forgetting, and pairing a second XIAO;

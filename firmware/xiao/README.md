@@ -49,9 +49,9 @@ The same output can be exercised over USB serial with `signal test` during hardw
 
 ## BLE pairing PIN
 
-Development firmware uses the static six-digit PIN `REDACTED_CREDENTIAL`. Override it with the build flag
-`-DHUH_BLE_STATIC_PASSKEY=123456`, substituting the desired six-digit value. Set
-`-DHUH_BLE_USE_STATIC_PASSKEY=0` to restore a randomly generated PIN printed over USB serial.
+Development firmware generates a new six-digit PIN at boot and prints it over USB serial.
+For private development only, supply a local `-DHUH_BLE_STATIC_PASSKEY=<six-digit-value>`
+build flag. Keep that value out of the repository.
 A fixed PIN is convenient for the personal POC but should be replaced by per-device setup
 credentials before distributing hardware.
 
@@ -139,10 +139,9 @@ Upload over Wi-Fi using the `xiao_esp32s3_sense_ota` environment:
 pio run -e xiao_esp32s3_sense_ota -t upload
 ```
 
-That environment currently targets `192.0.2.1`; update `upload_port` and
-`monitor_port` in `platformio.ini` if DHCP changes the address. The development OTA PIN
-defaults to `REDACTED_CREDENTIAL`, matching the current development BLE PIN. Override
-`HUH_OTA_PASSWORD` and the environment's `--auth` value together before using this beyond
+That environment currently targets the documentation address `192.0.2.1`; update `upload_port` and
+`monitor_port` in `platformio.ini` to the device's current address. Set `HUH_OTA_PASSWORD` and
+the environment's `--auth` value locally to the same strong password before using this beyond
 a private trusted LAN. OTA invitations are accepted only while capture and its controller
 connection are idle. USB remains the recovery path for a failed or incompatible image.
 
