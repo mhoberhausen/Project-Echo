@@ -29,6 +29,7 @@ class SdWavRecorder {
   bool selectFinalized(const protocol::StreamUuid& stream);
 
   bool isMounted() const { return mounted_; }
+  int chipSelectPin() const { return chipSelectPin_; }
   bool isRecording() const { return static_cast<bool>(output_); }
   uint32_t audioBytes() const { return audioBytes_; }
   const String& finalizedPath() const { return finalizedPath_; }
@@ -41,6 +42,7 @@ class SdWavRecorder {
   size_t recoverInterruptedCaptures();
 
   bool mounted_ = false;
+  int chipSelectPin_ = -1;
   File output_;
   String partialPath_;
   String finalizedPath_;

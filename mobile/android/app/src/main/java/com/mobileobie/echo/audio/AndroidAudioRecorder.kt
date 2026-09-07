@@ -2,6 +2,7 @@ package com.mobileobie.echo.audio
 
 import android.annotation.SuppressLint
 import android.media.AudioFormat
+import android.media.AudioDeviceInfo
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import kotlinx.coroutines.CoroutineDispatcher
@@ -14,6 +15,7 @@ import com.mobileobie.echo.vad.HeuristicVoiceActivityDetector
 
 class AndroidAudioRecorder(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val preferredInputDevice: AudioDeviceInfo? = null,
 ) : AudioRecorder, IncrementalAudioRecorder {
     private val lock = Any()
     private var audioRecord: AudioRecord? = null
@@ -51,6 +53,10 @@ class AndroidAudioRecorder(
         check(recorder.state == AudioRecord.STATE_INITIALIZED) {
             recorder.release()
             "Could not initialize the microphone."
+        }
+        if (preferredInputDevice != null && !recorder.setPreferredDevice(preferredInputDevice)) {
+            recorder.release()
+            error("Could not use the selected microphone.")
         }
 
         synchronized(lock) { pcmSamples = PcmSampleBuffer() }

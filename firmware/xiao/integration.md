@@ -84,6 +84,87 @@ secret and may be deleted after provisioning. Interactive serial provisioning re
 fallback. Exclamation marks and other ordinary INI characters do not require shell
 escaping. Matching outer single or double quotes are accepted and removed by the helper.
 
+## Wireless firmware diagnostics and updates
+
+The production firmware exposes two development-only services on the same trusted LAN.
+Both use the XIAO's current numeric IP address; mDNS discovery and advertisement are
+explicitly disabled.
+
+| Service | Transport | Port | Purpose |
+| --- | --- | --- | --- |
+| HUH1 audio/control | TCP | `8765` | Android audio capture and retained-file transfer |
+| Wireless diagnostics | TCP | `8766` | Read-only PlatformIO-compatible status stream |
+| Firmware OTA | UDP/TCP callback | `3232` | Password-protected PlatformIO firmware upload |
+
+The diagnostics endpoint accepts one client and emits a bounded text status line about
+every two seconds. Its current fields are:
+
+- `uptime_ms`: firmware uptime, not a UTC timestamp;
+- `state`: the same high-level state published over BLE (`DISCONNECTED`, `READY`,
+  `CONNECTED`, or `CAPTURING`);
+- `ip` and `rssi`: current LAN address and Wi-Fi signal strength;
+- `sd`: removable-storage availability;
+- `ota`: direct-IP OTA readiness;
+- `completed` and `interrupted`: capture-stream counters since boot;
+- `heap`: currently free ESP32 heap bytes.
+
+Diagnostics writes are non-blocking. A slow or disconnected monitor must never delay
+microphone capture, SD persistence, HUH1 control, or transfer recovery. The endpoint does
+not send audio, transcript content, Wi-Fi credentials, OTA credentials, or other secrets.
+
+BLE lifecycle events are emitted as separate lines when a diagnostics client is connected:
+
+```text
+uptime_ms=<monotonic-ms> event=ble connected authentication_required=true
+uptime_ms=<monotonic-ms> event=ble authentication result=success
+uptime_ms=<monotonic-ms> event=ble command received=PLAY_TEST_SOUND request_id=<id>
+uptime_ms=<monotonic-ms> event=ble response request_id=<id> result=OK
+uptime_ms=<monotonic-ms> event=ble disconnected
+```
+
+The bounded firmware queue retains only the newest eight pending BLE events and discards
+older ones if a burst occurs. Events are not persisted, and only report lifecycle state,
+command names, request IDs, and safe result codes—not BLE addresses, pairing codes, or
+command payload contents.
+
+Connect a PlatformIO monitor directly to the current address:
+
+```text
+pio device monitor --port socket://192.0.2.1:8766
+```
+
+`192.0.2.1` is the currently observed DHCP address, not a protocol guarantee. If it
+changes, obtain the new address from the router/DHCP client list or USB `wifi status`.
+Because mDNS is intentionally disabled, clients must not depend on a `.local` hostname.
+
+After an initial USB installation, PlatformIO can update the firmware directly by IP:
+
+```text
+pio run -e xiao_esp32s3_sense_ota -t upload
+```
+
+The `xiao_esp32s3_sense_ota` environment currently targets `192.0.2.1`, UDP port
+`3232`, and the development OTA PIN `REDACTED_CREDENTIAL`. The firmware default and PlatformIO
+`--auth` value must be changed together. This fixed PIN is suitable only for the present
+private trusted-LAN prototype; a production credential must be unique, locally
+provisioned, and excluded from source control and logs.
+
+Firmware calls `ArduinoOTA.setMdnsEnabled(false)` before starting OTA. New OTA invitations
+are handled only when no audio capture or HUH1 controller connection is active. If an
+update has already started, it retains control until completion or failure; the HUH1
+transport yields during that interval. A successful update reboots the XIAO. USB-C remains
+the recovery path for a failed, incompatible, or network-inaccessible image.
+
+### Verified wireless checkpoint (2026-09-02)
+
+- PlatformIO connected to the diagnostics endpoint at `192.0.2.1:8766` while the
+  XIAO was powered only by its LiPo battery.
+- The device reported `READY`, mounted SD storage, stable RSSI near `-52 dBm`, OTA ready,
+  and no completed or interrupted streams.
+- An authenticated full firmware upload to `192.0.2.1:3232` completed successfully.
+- The device rebooted and the diagnostics endpoint became reachable again without USB or
+  mDNS.
+
 ## Audio contract
 
 The Android receiver must accept this canonical stream:
@@ -338,10 +419,19 @@ The provisional version-1 BLE service is implemented with these UUIDs:
 
 The identity value is `v1|device_id|model|firmware_version`. Commands use the bounded
 `HHC1 | request_id_u32_le | verb` envelope. Pairing requires bonding, Secure Connections,
-MITM protection, and a boot-generated six-digit passkey shown only over USB serial.
-`STATUS`, `PAUSE`, and `STOP` are wired; `START` and `RESUME` currently return
+MITM protection, and a configurable six-digit passkey. Development builds currently use
+static PIN `REDACTED_CREDENTIAL`; `HUH_BLE_USE_STATIC_PASSKEY=0` restores a boot-generated PIN shown only
+over USB serial.
+`STATUS`, `PAUSE`, `STOP`, and `PLAY_TEST_SOUND` are wired; `START` and `RESUME` currently return
 `TCP_START_REQUIRED` because stream ownership and the renewable control lease must be
 established with the companion app before microphone capture starts.
+
+`PLAY_TEST_SOUND` produces a short, non-blocking LED pattern and optionally an ascending
+chime through a passive piezo connected between XIAO D1/GPIO2 and GND. The Sense expansion
+board has no speaker, so audible output requires the external piezo. The firmware rejects the command with `BUSY` while recording
+or already playing, and responds with `AUDIO_OUTPUT_UNAVAILABLE` when compiled with
+`HUH_TEST_TONE_PIN=-1`. The Android button should issue one command per tap and treat the
+matching response request ID as delivery confirmation.
 
 Treat active listening as a renewable control lease rather than a command that remains active
 indefinitely. The TCP reference controller sends `HEARTBEAT`; the future authenticated

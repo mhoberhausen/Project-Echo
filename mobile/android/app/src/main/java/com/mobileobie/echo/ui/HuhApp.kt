@@ -41,6 +41,8 @@ import androidx.compose.material.Switch
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.material.TopAppBar
+import androidx.compose.material.Tab
+import androidx.compose.material.TabRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
@@ -71,6 +73,8 @@ import com.mobileobie.echo.model.SessionMetadata
 import com.mobileobie.echo.model.SessionRecord
 import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.TranscriptionModel
+import com.mobileobie.echo.model.ProcessingStage
+import com.mobileobie.echo.model.StageState
 import com.mobileobie.echo.active.ActiveListeningSnapshot
 import com.mobileobie.echo.active.ActiveListeningState
 import com.mobileobie.echo.active.ActiveListeningSource
@@ -126,6 +130,9 @@ fun HuhApp(
     onSaveExternalDevice: (ExternalDeviceEndpoint) -> Unit = {},
     onConnectExternalDevice: (ExternalDeviceEndpoint) -> Unit = {},
     onForgetExternalDevice: () -> Unit = {},
+    puckTestFeedback: String? = null,
+    puckTestInProgress: Boolean = false,
+    onTestPuck: () -> Unit = {},
     selectedAudioInput: AudioInputChoice = AudioInputChoice.PHONE,
     onAudioInputSelected: (AudioInputChoice) -> Unit = {},
     aiProviders: List<AiProviderConfig> = listOf(AiProviderConfig.ON_DEVICE_GEMMA),
@@ -178,12 +185,14 @@ fun HuhApp(
         drawerElevation = 0.dp,
         drawerContent = {
             Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Surface(modifier = Modifier.fillMaxSize(), elevation = 16.dp) {
+                Surface(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.9f), elevation = 16.dp) {
                     NavigationDrawer(
                         filter = chatFilter,
                         sessions = sessions,
                         activeListening = activeListening,
                         onFilterChanged = { chatFilter = it },
+                        onHome = { returnHome() },
+                        onListenNow = { navigate(AppDestination.MANUAL) },
                         onActiveCapture = { navigate(AppDestination.LIVE) },
                         onSession = { session ->
                             selectedSessionId = session.id
@@ -233,6 +242,11 @@ fun HuhApp(
                     )
                     AppDestination.MANUAL -> RecorderScreen(
                         state = recorderState,
+                        captureSource = when (selectedAudioInput) {
+                            AudioInputChoice.PHONE -> "This phone"
+                            AudioInputChoice.BLUETOOTH -> "Bluetooth device"
+                            AudioInputChoice.XIAO -> externalDeviceEndpoint.displayName.ifBlank { "Huh? Puck" }
+                        },
                         onRecord = onRecord,
                         onStop = onStop,
                         onClear = onClear,
@@ -304,6 +318,9 @@ fun HuhApp(
                         onConnect = onConnectExternalDevice,
                         onDisconnect = onTurnOffActiveListening,
                         onForget = onForgetExternalDevice,
+                        testFeedback = puckTestFeedback,
+                        testInProgress = puckTestInProgress,
+                        onTestPuck = onTestPuck,
                     )
                     AppDestination.AI_SELECTION -> AiSelectionScreen(
                         providers = aiProviders,
@@ -462,6 +479,8 @@ private fun NavigationDrawer(
     sessions: List<SessionRecord>,
     activeListening: ActiveListeningSnapshot,
     onFilterChanged: (ChatFilter) -> Unit,
+    onHome: () -> Unit,
+    onListenNow: () -> Unit,
     onActiveCapture: () -> Unit,
     onSession: (SessionRecord) -> Unit,
     onPreferences: () -> Unit,
@@ -476,13 +495,26 @@ private fun NavigationDrawer(
     }
     val showActiveCapture = activeListening.state == ActiveListeningState.LISTENING &&
         filter != ChatFilter.PROCESSED
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HuhMark(Modifier.height(48.dp).fillMaxWidth(0.18f), MaterialTheme.colors.primary)
             Text("Huh?", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 10.dp))
         }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(onClick = onHome, modifier = Modifier.weight(1f)) { Text("Home") }
+            Button(onClick = onListenNow, modifier = Modifier.weight(1f)) { Text("Listen now") }
+        }
         Divider(Modifier.padding(vertical = 12.dp))
-        Text("What I Heard", fontWeight = FontWeight.Bold)
+        Text("Saved sessions", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text(
+            "Open a transcript or check its processing status.",
+            fontSize = 13.sp,
+            color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
+            modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+        )
         Box {
             OutlinedButton(onClick = { filterOpen = true }, modifier = Modifier.fillMaxWidth()) {
                 Text("Filter: ${filter.label}")
@@ -555,7 +587,7 @@ private fun NavigationDrawer(
             }
         }
         Divider()
-        TextButton(onClick = onPreferences, modifier = Modifier.fillMaxWidth()) { Text("Settings") }
+        TextButton(onClick = onPreferences, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Settings") }
     }
 }
 
@@ -575,8 +607,7 @@ private fun SessionDetailScreen(
     var nameSpeakers by remember(session.id) { mutableStateOf(false) }
     var renameSession by remember(session.id) { mutableStateOf(false) }
     var shareContent by remember(session.id) { mutableStateOf(false) }
-    var transcriptExpanded by remember(session.id) { mutableStateOf(false) }
-    var inferenceExpanded by remember(session.id) { mutableStateOf(false) }
+    var selectedTab by remember(session.id) { mutableStateOf(0) }
     val speakerIds = session.transcriptSegments.mapNotNull { it.speakerId }.distinct()
     val canEdit = session.transcript.isNotBlank() && session.status !in setOf(
         SessionStatus.TRANSCRIBING,
@@ -616,42 +647,45 @@ private fun SessionDetailScreen(
             fontSize = 13.sp,
             color = MaterialTheme.colors.primary,
         )
-        if (session.transcript.isNotBlank()) {
-            ExpandableSessionContentCard(
-                title = "Transcript",
-                text = session.transcript,
-                expanded = transcriptExpanded,
-                onExpandedChange = { transcriptExpanded = it },
-                actionLabel = if (canEdit) "Edit" else null,
-                onAction = if (canEdit) ({ editTranscript = true }) else null,
-                secondaryActionLabel = if (canEdit && speakerIds.isNotEmpty()) "Name speakers" else null,
-                onSecondaryAction = if (canEdit && speakerIds.isNotEmpty()) ({ nameSpeakers = true }) else null,
-            )
+        TabRow(selectedTabIndex = selectedTab, modifier = Modifier.padding(top = 20.dp)) {
+            listOf("Processing", "Transcript", "Interpretation").forEachIndexed { index, label ->
+                Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(label) })
+            }
         }
-        session.processText?.takeIf(String::isNotBlank)?.let { inferred ->
+        if (selectedTab == 0) {
+            ProcessingSummary(session, onRetryTranscription)
+        }
+        if (selectedTab == 1) {
+            if (session.transcript.isNotBlank()) {
+                SessionTabContent(
+                    title = "Transcript",
+                    text = session.transcript,
+                    actionLabel = if (canEdit) "Edit" else null,
+                    onAction = if (canEdit) ({ editTranscript = true }) else null,
+                    secondaryActionLabel = if (canEdit && speakerIds.isNotEmpty()) "Name speakers" else null,
+                    onSecondaryAction = if (canEdit && speakerIds.isNotEmpty()) ({ nameSpeakers = true }) else null,
+                )
+            } else {
+                SessionEmptyState("Transcript not ready", "You’ll see the words here after local transcription finishes.")
+            }
+        }
+        if (selectedTab == 2) session.processText?.takeIf(String::isNotBlank)?.let { inferred ->
             val inferredContent = buildString {
                 append(inferred)
                 if (session.tags.isNotEmpty()) append("\n\nTags: ").append(session.tags.joinToString(" · "))
             }
-            ExpandableSessionContentCard(
+            SessionTabContent(
                 title = "Inferred summary",
                 text = inferredContent,
-                expanded = inferenceExpanded,
-                onExpandedChange = { inferenceExpanded = it },
             )
         }
-        if (session.status == SessionStatus.TRANSCRIPTION_FAILED) {
-            Button(
-                onClick = onRetryTranscription,
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-            ) { Text("Retry transcription") }
-        } else if (session.transcript.isNotBlank() && session.status != SessionStatus.PROCESSED) {
-            val processing = session.status in setOf(SessionStatus.QUEUED, SessionStatus.PROCESSING)
-            Button(
-                onClick = onProcess,
-                enabled = !processing,
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-            ) {
+        if (selectedTab == 2 && session.processText.isNullOrBlank() && session.transcript.isNotBlank()) {
+            val processing = session.processing.stage(ProcessingStage.INTERPRETATION).state in setOf(StageState.QUEUED, StageState.RUNNING)
+            SessionEmptyState(
+                title = if (processing) "Making sense of this…" else "No interpretation yet",
+                supportingText = if (processing) "This is happening locally on your device." else "Create an optional local summary when you’re ready.",
+            )
+            Button(onClick = onProcess, enabled = !processing, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                 Text(if (processing) "Thinking…" else "Make sense of this")
             }
         }
@@ -737,50 +771,95 @@ private fun SessionDetailScreen(
 }
 
 @Composable
-private fun ExpandableSessionContentCard(
+private fun SessionEmptyState(title: String, supportingText: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+        elevation = 0.dp,
+        backgroundColor = MaterialTheme.colors.primary.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text(title, fontWeight = FontWeight.Bold)
+            Text(
+                supportingText,
+                modifier = Modifier.padding(top = 6.dp),
+                color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProcessingSummary(session: SessionRecord, onRetryTranscription: () -> Unit) {
+    val processing = session.processing
+    val readiness = processing.readiness(session.transcript.isNotBlank())
+    Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+        Text(
+            when (readiness) {
+                com.mobileobie.echo.model.SessionReadiness.READY_WITH_ISSUES -> "Ready with issues"
+                com.mobileobie.echo.model.SessionReadiness.READY -> "Processing complete"
+                else -> "Processing"
+            },
+            fontWeight = FontWeight.Bold,
+            fontSize = 20.sp,
+        )
+        val stages = buildList {
+            add(ProcessingStage.CAPTURE to "Audio captured")
+            if (processing.chunkCount > 0) {
+                add(ProcessingStage.CHUNKING to "Split into ${processing.chunkCount} chunks")
+                add(ProcessingStage.TRANSCRIPTION to "Transcribed ${processing.completedChunkCount} of ${processing.chunkCount} chunks")
+            }
+            add(ProcessingStage.ASSEMBLY to "Transcript assembled")
+            add(ProcessingStage.DIARIZATION to "Speakers identified")
+        }
+        stages.forEach { (stage, label) ->
+            val progress = processing.stage(stage)
+            val marker = when (progress.state) {
+                StageState.COMPLETE -> "✓"
+                StageState.RUNNING, StageState.QUEUED -> "◉"
+                StageState.FAILED -> "⚠"
+                else -> "○"
+            }
+            Text("$marker $label", modifier = Modifier.padding(top = 10.dp))
+            progress.failure?.userMessage?.let { Text(it, fontSize = 13.sp, color = MaterialTheme.colors.error) }
+            if (progress.state == StageState.FAILED && progress.failure?.retryable == true) {
+                Button(onClick = onRetryTranscription, modifier = Modifier.padding(top = 8.dp)) {
+                    Text(if (stage == ProcessingStage.DIARIZATION) "Retry speaker identification" else "Retry processing")
+                }
+            }
+        }
+        if (processing.chunkCount == 0 && session.transcript.isNotBlank()) {
+            Text(
+                "Detailed chunk progress was not recorded for this session.",
+                modifier = Modifier.padding(top = 12.dp),
+                fontSize = 13.sp,
+                color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SessionTabContent(
     title: String,
     text: String,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
     secondaryActionLabel: String? = null,
     onSecondaryAction: (() -> Unit)? = null,
 ) {
-    Card(modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) }.padding(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text(
-                    if (expanded) "▲" else "▼",
-                    modifier = Modifier.semantics {
-                        contentDescription = if (expanded) "Collapse $title" else "Expand $title"
-                    },
-                )
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.weight(1f))
+            if (secondaryActionLabel != null && onSecondaryAction != null) {
+                TextButton(onClick = onSecondaryAction) { Text(secondaryActionLabel) }
             }
-            if (expanded) {
-                Divider()
-                Text(text, modifier = Modifier.padding(start = 18.dp, top = 16.dp, end = 18.dp))
-                if ((secondaryActionLabel != null && onSecondaryAction != null) ||
-                    (actionLabel != null && onAction != null)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        if (secondaryActionLabel != null && onSecondaryAction != null) {
-                            TextButton(onClick = onSecondaryAction) { Text(secondaryActionLabel) }
-                        }
-                        if (actionLabel != null && onAction != null) {
-                            TextButton(onClick = onAction) { Text(actionLabel) }
-                        }
-                    }
-                }
+            if (actionLabel != null && onAction != null) {
+                TextButton(onClick = onAction) { Text(actionLabel) }
             }
         }
+        Divider(Modifier.padding(top = 8.dp))
+        Text(text, modifier = Modifier.padding(top = 16.dp))
     }
 }
 
@@ -933,13 +1012,25 @@ private fun PreferencesScreen(
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)
     ) {
+        Text("Your preferences", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+        Text(
+            "Choose how Huh? looks, listens, and processes speech. Settings stay on this device.",
+            modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
+            color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f),
+        )
         PreferenceHeading("Appearance")
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().clickable { onDarkThemeChanged(!darkTheme) }.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(Modifier.weight(1f)) {
                 Text("Dark mode", fontWeight = FontWeight.Bold)
-                Text(if (darkTheme) "Dark appearance" else "Light appearance")
+                Text(
+                    if (darkTheme) "On" else "Off — using light appearance",
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
+                )
             }
-            Switch(checked = darkTheme, onCheckedChange = onDarkThemeChanged)
+            Switch(checked = darkTheme, onCheckedChange = null)
         }
         Divider(Modifier.padding(vertical = 20.dp))
         PreferenceHeading("Active Listening")
@@ -956,7 +1047,7 @@ private fun PreferencesScreen(
             Text("AI Selection")
         }
         Text(
-            "Choose and prioritize on-device, local-network, or optional third-party methods.",
+            "Current transcription model: ${selectedModel.displayName}. Choose how optional interpretation is handled.",
             modifier = Modifier.padding(top = 8.dp),
         )
         Divider(Modifier.padding(vertical = 20.dp))
@@ -970,29 +1061,42 @@ private fun PreferencesScreen(
         )
         Divider(Modifier.padding(vertical = 20.dp))
         PreferenceHeading("Privacy")
-        Text("Processed on this device", fontWeight = FontWeight.Bold)
-        Text("Recording, transcription, and interpretation stay local.", modifier = Modifier.padding(top = 6.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = 0.dp,
+            backgroundColor = MaterialTheme.colors.primary.copy(alpha = 0.08f),
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Processed on this device", fontWeight = FontWeight.Bold)
+                Text("Recording, transcription, and interpretation stay local.", modifier = Modifier.padding(top = 6.dp))
+            }
+        }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onTelemetry, modifier = Modifier.fillMaxWidth()) {
             Text("Help improve Huh?")
         }
         Text("Choose whether to share anonymous diagnostics or usage insights.", modifier = Modifier.padding(top = 8.dp))
         Divider(Modifier.padding(vertical = 20.dp))
-        PreferenceHeading("Support Huh?")
+        PreferenceHeading("Help & support")
         OutlinedButton(
             onClick = onSupport,
             enabled = supportAvailable,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Support the developer")
+            Text("Get help or support Huh?")
         }
         Text(
-            if (supportAvailable) "Optional. Huh? is fully free to use."
-            else "Developer support is not configured in this build.",
+            if (supportAvailable) "Find app help or optionally support continued development."
+            else "Help and support are not configured in this build.",
             modifier = Modifier.padding(top = 8.dp),
         )
         Spacer(Modifier.height(12.dp))
-        Text("Active Listening preferences are saved on this device. Appearance currently resets when the app closes.")
+        Text(
+            "Active Listening preferences are saved on this device. Appearance currently resets when the app closes.",
+            color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
+            fontSize = 13.sp,
+        )
     }
 }
 
@@ -1002,9 +1106,9 @@ private fun SupportHuhScreen(
     onSupportDeveloper: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
-        Text("Enjoying Huh??", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text("Help & support", fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Text(
-            "Huh? is free to use. If you'd like to support continued development, you can leave a tip.",
+            "Find help using Huh?, or optionally support the developer. Huh? is free to use.",
             modifier = Modifier.padding(top = 8.dp),
         )
         Button(
@@ -1012,13 +1116,13 @@ private fun SupportHuhScreen(
             enabled = supportAvailable,
             modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
         ) {
-            Text("Support the developer")
+            Text("Open Huh? support")
         }
         if (!supportAvailable) {
-            Text("Support is not configured in this build.", modifier = Modifier.padding(top = 8.dp))
+            Text("Help and support are not configured in this build.", modifier = Modifier.padding(top = 8.dp))
         }
         Text(
-            "Thank you for helping keep Huh? evolving.",
+            "The support page opens in your browser.",
             modifier = Modifier.padding(top = 20.dp),
         )
     }
@@ -1078,6 +1182,9 @@ private fun ExternalDeviceScreen(
     onConnect: (ExternalDeviceEndpoint) -> Unit,
     onDisconnect: () -> Unit,
     onForget: () -> Unit,
+    testFeedback: String?,
+    testInProgress: Boolean,
+    onTestPuck: () -> Unit,
 ) {
     var host by remember(endpoint.host) { mutableStateOf(endpoint.host) }
     var port by remember(endpoint.port) { mutableStateOf(endpoint.port.toString()) }
@@ -1150,6 +1257,10 @@ private fun ExternalDeviceScreen(
         validationError?.let {
             Text(it, color = MaterialTheme.colors.error, modifier = Modifier.padding(top = 12.dp))
         }
+        OutlinedButton(
+            onClick = { enteredEndpoint()?.let { validationError = null; onSave(it) } },
+            modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
+        ) { Text("Save Puck settings") }
         if (externalActive) {
             Text(
                 when (snapshot.state) {
@@ -1171,8 +1282,25 @@ private fun ExternalDeviceScreen(
             Button(
                 onClick = { enteredEndpoint()?.let { validationError = null; onSave(it); onConnect(it) } },
                 enabled = false,
-                modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             ) { Text("Live capture unavailable") }
+        }
+        OutlinedButton(
+            onClick = onTestPuck,
+            enabled = !testInProgress,
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        ) { Text(if (testInProgress) "Testing Huh? Puck…" else "Test Huh? Puck") }
+        Text(
+            "This sends a Bluetooth test command only. Your Puck will flash, and an attached piezo will play a short chime.",
+            modifier = Modifier.padding(top = 6.dp),
+            color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
+        )
+        testFeedback?.let {
+            Text(
+                it,
+                modifier = Modifier.padding(top = 8.dp),
+                color = if (it.startsWith("Test sound sent")) MaterialTheme.colors.primary else MaterialTheme.colors.error,
+            )
         }
         OutlinedButton(
             onClick = {

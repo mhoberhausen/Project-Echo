@@ -3,10 +3,12 @@ package com.mobileobie.echo.transcription
 import com.mobileobie.echo.audio.RecordedAudio
 import com.mobileobie.echo.data.SessionRepository
 import com.mobileobie.echo.model.ProcessedMessage
+import com.mobileobie.echo.model.ProcessingStage
 import com.mobileobie.echo.model.SessionMetadata
 import com.mobileobie.echo.model.SessionRecord
 import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.model.SessionStatus
+import com.mobileobie.echo.model.SessionProcessing
 import com.mobileobie.echo.model.TranscriptionModel
 import com.mobileobie.echo.model.TranscriptSegment
 import com.mobileobie.echo.active.AutomaticCaptureCleanupPolicy
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -52,7 +55,9 @@ class TranscriptionProcessorTest {
         assertEquals(1, maximum.get())
         assertEquals(2, repository.sessions.value.count { it.status == SessionStatus.TRANSCRIBED })
         assertEquals(listOf("Hello there", "Hello there"), repository.sessions.value.map { it.transcript })
-        assertEquals(true, sessions.all { !File(requireNotNull(it.audioPath)).exists() })
+        // Keep source PCM while it remains useful for independently retrying diarization.
+        assertEquals(true, sessions.all { File(requireNotNull(it.audioPath)).exists() })
+        sessions.forEach { repository.delete(it.id) }
     }
 
     @Test
@@ -158,9 +163,34 @@ class TranscriptionProcessorTest {
         )
 
         assertEquals(false, processor.process(session.id))
-        assertEquals(SessionStatus.TRANSCRIPTION_FAILED, repository.sessions.value.single().status)
+        val failed = repository.sessions.value.single()
+        assertEquals(SessionStatus.TRANSCRIPTION_FAILED, failed.status)
         assertEquals(true, File(requireNotNull(session.audioPath)).exists())
+        assertEquals("transcriber_failed", failed.processing.stage(ProcessingStage.TRANSCRIPTION).failure?.debugCode)
+        assertEquals(1, failed.processing.stage(ProcessingStage.TRANSCRIPTION).attempts)
         repository.delete(session.id)
+    }
+
+    @Test
+    fun missingSourceAudioIsNotMarkedRetryable() = runBlocking {
+        val repository = FakeRepository()
+        val session = queuedSession("missing-source")
+        File(requireNotNull(session.audioPath)).delete()
+        repository.create(session)
+        val processor = TranscriptionProcessor(
+            repository,
+            object : Transcriber {
+                override suspend fun transcribe(audio: RecordedAudio, model: TranscriptionModel) = timestamped("unused")
+            },
+            PassthroughSpeakerDiarizer,
+            TranscriptCleaner(),
+            { AutomaticCaptureCleanupPolicy(0) },
+        )
+
+        assertFalse(processor.process(session.id))
+        val failure = repository.sessions.value.single().processing.stage(ProcessingStage.TRANSCRIPTION).failure
+        assertEquals(false, failure?.retryable)
+        assertEquals("source_audio_missing", failure?.debugCode)
     }
 
     private fun queuedSession(id: String): SessionRecord {
@@ -193,6 +223,9 @@ private class FakeRepository : SessionRepository {
     }
     override suspend fun updateStatus(id: String, status: SessionStatus) {
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) it.copy(status = status) else it }
+    }
+    override suspend fun updateProcessing(id: String, processing: SessionProcessing) {
+        mutableSessions.value = mutableSessions.value.map { if (it.id == id) it.copy(processing = processing) else it }
     }
     override suspend fun saveTranscription(
         id: String,

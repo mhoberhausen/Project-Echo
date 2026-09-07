@@ -80,6 +80,7 @@ data class SessionRecord(
     val conversationEndSilenceMillis: Long = 0L,
     val externalDevice: ExternalDeviceSessionMetadata? = null,
     val transcriptSegments: List<TranscriptSegment> = emptyList(),
+    val processing: SessionProcessing = SessionProcessing.legacy(status, transcript.isNotBlank()),
 )
 
 object SessionMetadata {
@@ -92,6 +93,8 @@ object SessionMetadata {
         originalTranscript: String,
         transcriptSegments: List<TranscriptSegment> = emptyList(),
         transcriptionModel: TranscriptionModel,
+        source: SessionSource = SessionSource.MANUAL,
+        externalDevice: ExternalDeviceSessionMetadata? = null,
         nowUtcMillis: Long = System.currentTimeMillis(),
         zoneId: ZoneId = ZoneId.systemDefault(),
         id: String = UUID.randomUUID().toString(),
@@ -109,8 +112,9 @@ object SessionMetadata {
             processText = null,
             tags = emptyList(),
             transcriptionModel = transcriptionModel,
-            source = SessionSource.MANUAL,
+            source = source,
             audioPath = null,
+            externalDevice = externalDevice,
             transcriptSegments = transcriptSegments,
         )
     }

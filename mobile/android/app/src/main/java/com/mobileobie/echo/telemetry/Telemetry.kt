@@ -40,7 +40,7 @@ sealed interface TelemetryEvent {
         }
     }
 
-    enum class Source(val value: String) { PHONE("phone"), ACTIVE_LISTENING("active_listening"), PUCK("puck") }
+    enum class Source(val value: String) { PHONE("phone"), BLUETOOTH("bluetooth"), ACTIVE_LISTENING("active_listening"), PUCK("puck") }
     enum class Stage(val value: String) { TRANSCRIPTION("transcription"), DIARIZATION("diarization") }
     enum class Provider(val value: String) { ON_DEVICE("on_device"), LAN("lan"), UNAVAILABLE("unavailable") }
     enum class Outcome(val value: String) { STARTED("started"), COMPLETED("completed"), CANCELLED("cancelled"), FAILED("failed") }

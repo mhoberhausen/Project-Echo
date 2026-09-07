@@ -13,6 +13,11 @@ import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.model.TranscriptionModel
 import com.mobileobie.echo.model.TranscriptSegment
+import com.mobileobie.echo.model.SessionProcessing
+import com.mobileobie.echo.model.ProcessingStage
+import com.mobileobie.echo.model.StageProgress
+import com.mobileobie.echo.model.StageState
+import com.mobileobie.echo.model.ProcessingFailure
 import com.mobileobie.echo.transcription.SpeakerLabels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +51,13 @@ class SQLiteSessionRepository(
     override suspend fun updateStatus(id: String, status: SessionStatus) = withContext(Dispatchers.IO) {
         update(id, ContentValues().apply {
             put(COLUMN_STATUS, status.name)
+            put(COLUMN_UPDATED_AT, System.currentTimeMillis())
+        })
+    }
+
+    override suspend fun updateProcessing(id: String, processing: SessionProcessing) = withContext(Dispatchers.IO) {
+        update(id, ContentValues().apply {
+            put(COLUMN_PROCESSING_JSON, processing.toJson().toString())
             put(COLUMN_UPDATED_AT, System.currentTimeMillis())
         })
     }
@@ -123,7 +135,6 @@ class SQLiteSessionRepository(
             put(COLUMN_ORIGINAL_TRANSCRIPT, original)
             put(COLUMN_TRANSCRIPT_SEGMENTS_JSON, segments.toJson().toString())
             put(COLUMN_STATUS, SessionStatus.TRANSCRIBED.name)
-            putNull(COLUMN_AUDIO_PATH)
             put(COLUMN_UPDATED_AT, System.currentTimeMillis())
         })
     }
@@ -181,6 +192,7 @@ class SQLiteSessionRepository(
         put(COLUMN_CONVERSATION_END_SILENCE, conversationEndSilenceMillis)
         put(COLUMN_EXTERNAL_METADATA_JSON, externalDevice?.toJson()?.toString())
         put(COLUMN_TRANSCRIPT_SEGMENTS_JSON, transcriptSegments.toJson().toString())
+        put(COLUMN_PROCESSING_JSON, processing.toJson().toString())
     }
 
     private fun Cursor.session() = SessionRecord(
@@ -211,6 +223,9 @@ class SQLiteSessionRepository(
         transcriptSegments = runCatching {
             transcriptSegments(nullableString(COLUMN_TRANSCRIPT_SEGMENTS_JSON) ?: "[]")
         }.getOrDefault(emptyList()),
+        processing = nullableString(COLUMN_PROCESSING_JSON)?.let { json ->
+            runCatching { processing(json) }.getOrNull()
+        } ?: SessionProcessing.legacy(SessionStatus.fromStorage(string(COLUMN_STATUS)), string(COLUMN_TRANSCRIPT).isNotBlank()),
     )
 
     private fun Cursor.string(column: String) = getString(getColumnIndexOrThrow(column))
@@ -246,12 +261,15 @@ class SQLiteSessionRepository(
             if (oldVersion < 5) {
                 db.execSQL("ALTER TABLE $TABLE_SESSIONS ADD COLUMN $COLUMN_TRANSCRIPT_SEGMENTS_JSON TEXT NOT NULL DEFAULT '[]'")
             }
+            if (oldVersion < 6) {
+                db.execSQL("ALTER TABLE $TABLE_SESSIONS ADD COLUMN $COLUMN_PROCESSING_JSON TEXT")
+            }
         }
     }
 
     companion object {
         private const val DATABASE_NAME = "echo_keep.db"
-        private const val DATABASE_VERSION = 5
+        private const val DATABASE_VERSION = 6
         private const val TABLE_SESSIONS = "sessions"
         private const val COLUMN_ID = "id"
         private const val COLUMN_CREATED_AT = "created_at_utc"
@@ -272,6 +290,7 @@ class SQLiteSessionRepository(
         private const val COLUMN_CONVERSATION_END_SILENCE = "conversation_end_silence_millis"
         private const val COLUMN_EXTERNAL_METADATA_JSON = "external_metadata_json"
         private const val COLUMN_TRANSCRIPT_SEGMENTS_JSON = "transcript_segments_json"
+        private const val COLUMN_PROCESSING_JSON = "processing_json"
         private val ALL_COLUMNS = arrayOf(
             COLUMN_ID, COLUMN_CREATED_AT, COLUMN_UPDATED_AT, COLUMN_DURATION, COLUMN_TITLE,
             COLUMN_STATUS, COLUMN_TRANSCRIPT, COLUMN_ORIGINAL_TRANSCRIPT, COLUMN_PROCESS_TEXT,
@@ -279,7 +298,7 @@ class SQLiteSessionRepository(
             COLUMN_SPEECH_DURATION, COLUMN_SPEECH_SEGMENT_COUNT,
             COLUMN_LONGEST_INTERNAL_SILENCE, COLUMN_CONVERSATION_END_SILENCE,
             COLUMN_EXTERNAL_METADATA_JSON,
-            COLUMN_TRANSCRIPT_SEGMENTS_JSON,
+            COLUMN_TRANSCRIPT_SEGMENTS_JSON, COLUMN_PROCESSING_JSON,
         )
         private val SQL_CREATE_SESSIONS = """
             CREATE TABLE $TABLE_SESSIONS (
@@ -301,7 +320,8 @@ class SQLiteSessionRepository(
                 $COLUMN_LONGEST_INTERNAL_SILENCE INTEGER NOT NULL DEFAULT 0,
                 $COLUMN_CONVERSATION_END_SILENCE INTEGER NOT NULL DEFAULT 0,
                 $COLUMN_EXTERNAL_METADATA_JSON TEXT,
-                $COLUMN_TRANSCRIPT_SEGMENTS_JSON TEXT NOT NULL DEFAULT '[]'
+                $COLUMN_TRANSCRIPT_SEGMENTS_JSON TEXT NOT NULL DEFAULT '[]',
+                $COLUMN_PROCESSING_JSON TEXT
             )
         """.trimIndent()
     }
@@ -367,3 +387,42 @@ private fun externalMetadata(json: String): ExternalDeviceSessionMetadata = JSON
 
 private fun JSONObject.nullableString(key: String): String? =
     if (isNull(key)) null else optString(key).takeIf(String::isNotBlank)
+
+private fun SessionProcessing.toJson() = JSONObject().apply {
+    put("chunk_count", chunkCount)
+    put("completed_chunk_count", completedChunkCount)
+    put("stages", JSONObject().apply {
+        stages.forEach { (stage, progress) ->
+            put(stage.name, JSONObject().apply {
+                put("state", progress.state.name)
+                put("attempts", progress.attempts)
+                put("started_at", progress.startedAtUtcMillis)
+                put("completed_at", progress.completedAtUtcMillis)
+                progress.failure?.let { failure -> put("failure", JSONObject().apply {
+                    put("retryable", failure.retryable); put("message", failure.userMessage)
+                    put("chunk", failure.chunkIndex); put("code", failure.debugCode)
+                }) }
+            })
+        }
+    })
+}
+
+private fun processing(json: String): SessionProcessing = JSONObject(json).let { root ->
+    val stageValues = root.optJSONObject("stages") ?: JSONObject()
+    val stages = ProcessingStage.entries.mapNotNull { stage ->
+        stageValues.optJSONObject(stage.name)?.let { value ->
+            val failureValue = value.optJSONObject("failure")
+            stage to StageProgress(
+                state = StageState.entries.firstOrNull { it.name == value.optString("state") } ?: StageState.NOT_STARTED,
+                attempts = value.optInt("attempts"),
+                startedAtUtcMillis = if (value.isNull("started_at")) null else value.optLong("started_at"),
+                completedAtUtcMillis = if (value.isNull("completed_at")) null else value.optLong("completed_at"),
+                failure = failureValue?.let { failure -> ProcessingFailure(
+                    stage, failure.optBoolean("retryable", true), failure.optString("message", "This step could not be completed."),
+                    if (failure.isNull("chunk")) null else failure.optInt("chunk"), failure.nullableString("code"),
+                ) }
+            )
+        }
+    }.toMap()
+    SessionProcessing(stages, root.optInt("chunk_count"), root.optInt("completed_chunk_count"))
+}

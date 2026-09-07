@@ -40,6 +40,7 @@ import com.mobileobie.echo.model.TranscriptionModel
 @Composable
 fun RecorderScreen(
     state: RecorderUiState,
+    captureSource: String = "This phone",
     onRecord: () -> Unit,
     onStop: () -> Unit,
     onClear: () -> Unit,
@@ -57,6 +58,11 @@ fun RecorderScreen(
         ) {
             if (showAppTitle) Text("Huh?", style = MaterialTheme.typography.h4)
             Text(statusText(state), modifier = Modifier.padding(top = 8.dp, bottom = 24.dp))
+            Text(
+                "Source: $captureSource",
+                color = MaterialTheme.colors.onSurface.copy(alpha = 0.68f),
+                fontSize = 13.sp,
+            )
 
             when (state.phase) {
                 RecordingPhase.IDLE -> {

@@ -12,7 +12,9 @@
 #include "device/DeviceIdentity.h"
 #if !ENABLE_SD_RECORDING_TEST
 #include "device/BleControlService.h"
+#include "device/OtaService.h"
 #include "device/SerialProvisioner.h"
+#include "device/TestTonePlayer.h"
 #include "device/WifiCredentialStore.h"
 #endif
 #include "protocol/HuhAudioProtocol.h"
@@ -20,6 +22,7 @@
 #if !ENABLE_SD_RECORDING_TEST
 #include "storage/SdWavRecorder.h"
 #include "transport/TcpAudioTransport.h"
+#include "transport/DiagnosticServer.h"
 #include "transport/TrustedLanWifi.h"
 
 #include <memory>
@@ -36,6 +39,33 @@ huh::device::SerialProvisioner serialProvisioner(credentialStore);
 huh::transport::TrustedLanWifi trustedLanWifi;
 std::unique_ptr<huh::transport::TcpAudioTransport> tcpTransport;
 huh::device::BleControlService bleControl;
+huh::device::OtaService otaService;
+huh::transport::DiagnosticServer diagnosticServer(config::kDiagnosticPort);
+huh::device::TestTonePlayer testTone(config::kTestTonePin,
+                                     config::kConnectionTestLedPin,
+                                     config::kConnectionTestLedActiveLow);
+bool restoreSdAfterConnectionTest = false;
+
+bool startConnectionTest() {
+  // GPIO 21 is the XIAO's onboard LED and also the microSD chip-select pin on
+  // some Sense boards. Never manipulate it while capture or file transfer is
+  // possible; briefly release SD only for this explicit idle test.
+  if (tcpTransport != nullptr &&
+      (tcpTransport->isCapturing() || tcpTransport->hasClient())) return false;
+  if (!testTone.hasLed() && sdRecorder.isMounted() &&
+      sdRecorder.chipSelectPin() == config::kConnectionTestLedPin) {
+    sdRecorder.end();
+    testTone.begin();
+    restoreSdAfterConnectionTest = true;
+  }
+  if (testTone.play()) return true;
+  if (restoreSdAfterConnectionTest) {
+    sdRecorder.begin();
+    testTone.begin(sdRecorder.chipSelectPin());
+    restoreSdAfterConnectionTest = false;
+  }
+  return false;
+}
 
 void printWifiStatus() {
   Serial.printf("Wi-Fi: %s\n", trustedLanWifi.stateName());
@@ -50,6 +80,9 @@ void printWifiStatus() {
                 tcpTransport != nullptr && tcpTransport->isListening() ? "listening" : "stopped",
                 config::kTcpAudioPort,
                 tcpTransport != nullptr && tcpTransport->hasClient() ? "connected" : "none");
+  Serial.printf("Diagnostics: port=%u; client=%s; OTA: port=%u; ready=%s; mDNS=disabled\n",
+                config::kDiagnosticPort, diagnosticServer.hasClient() ? "connected" : "none",
+                config::kOtaPort, otaService.isReady() ? "yes" : "no");
 }
 
 void loadAndConnectWifi() {
@@ -253,6 +286,9 @@ void setup() {
   tcpTransport = std::make_unique<huh::transport::TcpAudioTransport>(
       config::kTcpAudioPort, identity, streamingController, sdRecorder);
   if (!bleControl.begin(identity)) Serial.println("ERROR: BLE control service could not start.");
+  Serial.printf("BLE connection test output: %s (tone GPIO %d, LED GPIO %d).\n",
+                testTone.begin(sdRecorder.chipSelectPin()) ? "ready" : "unavailable",
+                config::kTestTonePin, config::kConnectionTestLedPin);
   huh::device::WifiCredentials credentials;
   const bool hasCredentials = credentialStore.load(credentials);
   serialProvisioner.begin(hasCredentials);
@@ -280,14 +316,24 @@ void loop() {
       if (!sdRecorder.isMounted()) Serial.println("SD card is not mounted.");
       else if (sdRecorder.printFinalizedCaptures(Serial) == 0) Serial.println("No finalized captures retained.");
       break;
+    case huh::device::ProvisioningEvent::kConnectionTestRequested:
+      Serial.println(startConnectionTest() ? "Connection test started." :
+                                             "Connection test unavailable or busy.");
+      break;
     case huh::device::ProvisioningEvent::kNone:
       break;
   }
   trustedLanWifi.poll();
+  const bool networkConnected = trustedLanWifi.isConnected();
+  otaService.setNetworkAvailable(networkConnected);
+  diagnosticServer.setNetworkAvailable(networkConnected);
   if (tcpTransport != nullptr) {
-    tcpTransport->setNetworkAvailable(trustedLanWifi.isConnected());
-    tcpTransport->poll();
+    tcpTransport->setNetworkAvailable(networkConnected);
+    if (!otaService.isUpdating()) tcpTransport->poll();
   }
+  const bool captureIdle = tcpTransport == nullptr ||
+      (!tcpTransport->isCapturing() && !tcpTransport->hasClient());
+  otaService.poll(captureIdle);
   huh::device::HardwareControlRequest controlRequest;
   if (bleControl.takeRequest(controlRequest)) {
     switch (controlRequest.command) {
@@ -310,6 +356,16 @@ void loop() {
       case huh::device::HardwareControlCommand::kResume:
         bleControl.publishResponse(controlRequest.requestId, "TCP_START_REQUIRED");
         break;
+      case huh::device::HardwareControlCommand::kPlayTestSound:
+        if (testTone.isPlaying() || (tcpTransport != nullptr &&
+                                     (tcpTransport->isCapturing() || tcpTransport->hasClient()))) {
+          bleControl.publishResponse(controlRequest.requestId, "BUSY");
+        } else if (!startConnectionTest()) {
+          bleControl.publishResponse(controlRequest.requestId, "AUDIO_OUTPUT_UNAVAILABLE");
+        } else {
+          bleControl.publishResponse(controlRequest.requestId, "OK");
+        }
+        break;
       case huh::device::HardwareControlCommand::kUnknown:
         bleControl.publishResponse(controlRequest.requestId, "INVALID_REQUEST");
         break;
@@ -319,6 +375,22 @@ void loop() {
       (tcpTransport != nullptr && tcpTransport->isCapturing() ? "CAPTURING" :
        (tcpTransport != nullptr && tcpTransport->hasClient() ? "CONNECTED" : "READY"));
   bleControl.publishStatus(bleState);
+  String bleDiagnostic;
+  while (bleControl.takeDiagnostic(bleDiagnostic)) {
+    diagnosticServer.publishEvent("ble", bleDiagnostic);
+  }
+  diagnosticServer.poll({bleState, networkConnected ? WiFi.RSSI() : 0,
+                         sdRecorder.isMounted(), otaService.isReady(),
+                         tcpTransport != nullptr ? tcpTransport->completedStreams() : 0,
+                         tcpTransport != nullptr ? tcpTransport->interruptedStreams() : 0});
+  testTone.poll();
+  if (restoreSdAfterConnectionTest && !testTone.isPlaying()) {
+    const bool remounted = sdRecorder.begin();
+    testTone.begin(sdRecorder.chipSelectPin());
+    restoreSdAfterConnectionTest = false;
+    Serial.println(remounted ? "microSD restored after connection test." :
+                               "ERROR: Could not restore microSD after connection test.");
+  }
   if (tcpTransport == nullptr || !tcpTransport->shouldPollImmediately()) {
     delay(1);
   } else {

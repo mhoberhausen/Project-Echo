@@ -4,7 +4,11 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobileobie.echo.audio.AudioRecorder
+import com.mobileobie.echo.audio.BluetoothAudioRecorder
 import com.mobileobie.echo.audio.IncrementalAudioRecorder
+import com.mobileobie.echo.external.ExternalDeviceEndpoint
+import com.mobileobie.echo.external.PuckAudioRecorder
+import com.mobileobie.echo.model.SessionSource
 import com.mobileobie.echo.data.SessionRepository
 import com.mobileobie.echo.interpretation.TranscriptInterpreter
 import com.mobileobie.echo.model.RecorderUiState
@@ -13,6 +17,10 @@ import com.mobileobie.echo.model.SessionMetadata
 import com.mobileobie.echo.model.SessionRecord
 import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.TranscriptionModel
+import com.mobileobie.echo.model.ProcessingStage
+import com.mobileobie.echo.model.StageProgress
+import com.mobileobie.echo.model.StageState
+import com.mobileobie.echo.model.ProcessingFailure
 import com.mobileobie.echo.transcription.Transcriber
 import com.mobileobie.echo.transcription.IncrementalTranscriptionWorker
 import com.mobileobie.echo.transcription.TimestampedTranscript
@@ -41,6 +49,7 @@ class RecorderViewModel(
     private val inferenceProvider: () -> TelemetryEvent.Provider = { TelemetryEvent.Provider.UNAVAILABLE },
     private val quietBoundaryMs: () -> Long = { 1_000L },
 ) : ViewModel() {
+    private var activeRecorder: AudioRecorder = recorder
     private val _uiState = MutableStateFlow(RecorderUiState())
     val uiState: StateFlow<RecorderUiState> = _uiState.asStateFlow()
     val sessions: StateFlow<List<SessionRecord>> = sessionRepository.sessions
@@ -58,12 +67,13 @@ class RecorderViewModel(
         if (_uiState.value.phase == RecordingPhase.RECORDING) return
         viewModelScope.launch {
             runCatching {
-                if (recorder is IncrementalAudioRecorder) {
+                activeRecorder = recorder
+                if (activeRecorder is IncrementalAudioRecorder) {
                     startChunkTranscription(_uiState.value.selectedModel)
-                    recorder.startIncremental(quietBoundaryMs()) { chunk ->
+                    (activeRecorder as IncrementalAudioRecorder).startIncremental(quietBoundaryMs()) { chunk ->
                         chunkWorker?.offer(chunk)
                     }
-                } else recorder.start()
+                } else activeRecorder.start()
             }
                 .onSuccess {
                     _uiState.update {
@@ -82,13 +92,47 @@ class RecorderViewModel(
         }
     }
 
+    fun startPuckRecording(endpoint: ExternalDeviceEndpoint) {
+        if (_uiState.value.phase == RecordingPhase.RECORDING) return
+        viewModelScope.launch {
+            runCatching {
+                activeRecorder = PuckAudioRecorder(endpoint)
+                activeRecorder.start()
+            }.onSuccess {
+                _uiState.update { RecorderUiState(phase = RecordingPhase.RECORDING, selectedModel = it.selectedModel) }
+                startTimer()
+                telemetry.record(TelemetryEvent.Capture(TelemetryEvent.Source.PUCK, TelemetryEvent.Outcome.STARTED))
+            }.onFailure(::showError)
+        }
+    }
+
+    fun startBluetoothRecording(bluetoothRecorder: BluetoothAudioRecorder) {
+        if (_uiState.value.phase == RecordingPhase.RECORDING) return
+        viewModelScope.launch {
+            runCatching {
+                activeRecorder = bluetoothRecorder
+                startChunkTranscription(_uiState.value.selectedModel)
+                bluetoothRecorder.startIncremental(quietBoundaryMs()) { chunk ->
+                    chunkWorker?.offer(chunk)
+                }
+            }.onSuccess {
+                _uiState.update { RecorderUiState(phase = RecordingPhase.RECORDING, selectedModel = it.selectedModel) }
+                startTimer()
+                telemetry.record(TelemetryEvent.Capture(TelemetryEvent.Source.BLUETOOTH, TelemetryEvent.Outcome.STARTED))
+            }.onFailure {
+                cancelChunkTranscription()
+                showError(it)
+            }
+        }
+    }
+
     fun stopRecording() {
         if (_uiState.value.phase != RecordingPhase.RECORDING) return
         timerJob?.cancel()
         _uiState.update { it.copy(phase = RecordingPhase.PROCESSING) }
         viewModelScope.launch {
             runCatching {
-                val audio = recorder.stop()
+                val audio = activeRecorder.stop()
                 val model = _uiState.value.selectedModel
                 val timestamped = finishChunkTranscription()
                     ?: transcriber.transcribe(audio, model)
@@ -102,6 +146,8 @@ class RecorderViewModel(
                     originalTranscript = original,
                     transcriptSegments = diarized.segments,
                     transcriptionModel = model,
+                    source = if (activeRecorder is PuckAudioRecorder) SessionSource.EXTERNAL_DEVICE else SessionSource.MANUAL,
+                    externalDevice = (activeRecorder as? PuckAudioRecorder)?.metadata,
                 )
                 sessionRepository.create(session)
                 session
@@ -113,7 +159,7 @@ class RecorderViewModel(
                         durationBucket(session.durationMillis),
                     )
                 )
-                telemetry.record(TelemetryEvent.Capture(TelemetryEvent.Source.PHONE, TelemetryEvent.Outcome.COMPLETED))
+                telemetry.record(TelemetryEvent.Capture(captureSource(), TelemetryEvent.Outcome.COMPLETED))
                 _uiState.value = RecorderUiState(
                     phase = RecordingPhase.COMPLETE,
                     originalTranscript = session.originalTranscript,
@@ -141,10 +187,10 @@ class RecorderViewModel(
         timerJob?.cancel()
         cancelChunkTranscription()
         viewModelScope.launch {
-            runCatching { recorder.stop() }
+            runCatching { activeRecorder.stop() }
                 .onSuccess {
                     _uiState.update { RecorderUiState(selectedModel = it.selectedModel) }
-                    telemetry.record(TelemetryEvent.Capture(TelemetryEvent.Source.PHONE, TelemetryEvent.Outcome.CANCELLED))
+                    telemetry.record(TelemetryEvent.Capture(captureSource(), TelemetryEvent.Outcome.CANCELLED))
                 }
                 .onFailure(::showError)
         }
@@ -231,13 +277,22 @@ class RecorderViewModel(
         if (processingJob?.isActive == true) return
         processingJob = viewModelScope.launch {
             runCatching {
-                sessionRepository.updateStatus(sessionId, SessionStatus.QUEUED)
-                sessionRepository.updateStatus(sessionId, SessionStatus.PROCESSING)
+                val current = sessions.value.firstOrNull { it.id == sessionId } ?: return@launch
+                sessionRepository.updateProcessing(sessionId, current.processing.withStage(
+                    ProcessingStage.INTERPRETATION, StageProgress(StageState.RUNNING,
+                        current.processing.stage(ProcessingStage.INTERPRETATION).attempts + 1,
+                        startedAtUtcMillis = System.currentTimeMillis()),
+                ))
                 if (updateRecorderState) {
                     _uiState.update { it.copy(phase = RecordingPhase.INTERPRETING, errorMessage = null) }
                 }
                 interpreter.interpret(transcript).also { result ->
                     sessionRepository.saveProcessed(sessionId, result)
+                    sessionRepository.updateProcessing(sessionId, current.processing.withStage(
+                        ProcessingStage.INTERPRETATION, StageProgress(StageState.COMPLETE,
+                            current.processing.stage(ProcessingStage.INTERPRETATION).attempts + 1,
+                            completedAtUtcMillis = System.currentTimeMillis()),
+                    ))
                 }
             }
                 .onSuccess { result ->
@@ -250,7 +305,14 @@ class RecorderViewModel(
                     telemetry.record(TelemetryEvent.Inference(inferenceProvider(), TelemetryEvent.Outcome.FAILED))
                     telemetry.recordSanitizedFailure("inference_failed")
                     Log.e(LOG_TAG, "Saved transcript interpretation failed for session $sessionId", error)
-                    runCatching { sessionRepository.updateStatus(sessionId, SessionStatus.FAILED) }
+                    runCatching {
+                        val current = sessions.value.firstOrNull { it.id == sessionId } ?: return@runCatching
+                        sessionRepository.updateProcessing(sessionId, current.processing.withStage(
+                            ProcessingStage.INTERPRETATION, StageProgress(StageState.FAILED,
+                                current.processing.stage(ProcessingStage.INTERPRETATION).attempts + 1,
+                                failure = ProcessingFailure(ProcessingStage.INTERPRETATION, true, "The selected AI method could not process this transcript.")),
+                        ))
+                    }
                     if (updateRecorderState) {
                         _uiState.update {
                             it.copy(
@@ -292,6 +354,14 @@ class RecorderViewModel(
         showError(IllegalStateException("Pause or turn off Keep an Ear Out before using Listen Now."))
     }
 
+    fun externalDeviceNotConfigured() {
+        showError(IllegalStateException("Configure your Huh? Puck before using it for Listen Now."))
+    }
+
+    fun puckLocalNetworkPermissionDenied() {
+        showError(IllegalStateException("Local network permission is required to record from your Huh? Puck."))
+    }
+
     fun aiNetworkPermissionDenied() {
         showError(IllegalStateException("Local network permission is required to use the selected LAN AI method."))
     }
@@ -304,6 +374,12 @@ class RecorderViewModel(
                 _uiState.update { it.copy(elapsedSeconds = it.elapsedSeconds + 1) }
             }
         }
+    }
+
+    private fun captureSource() = when (activeRecorder) {
+        is PuckAudioRecorder -> TelemetryEvent.Source.PUCK
+        is BluetoothAudioRecorder -> TelemetryEvent.Source.BLUETOOTH
+        else -> TelemetryEvent.Source.PHONE
     }
 
     private fun startChunkTranscription(model: TranscriptionModel) {
@@ -346,7 +422,8 @@ class RecorderViewModel(
     override fun onCleared() {
         processingJob?.cancel()
         cancelChunkTranscription()
-        recorder.release()
+        activeRecorder.release()
+        if (activeRecorder !== recorder) recorder.release()
         interpreter.release()
     }
 

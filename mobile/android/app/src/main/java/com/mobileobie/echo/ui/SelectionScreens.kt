@@ -53,11 +53,10 @@ internal fun AudioInputDialog(
         text = {
             Column {
                 AudioInputChoice.entries.forEach { choice ->
-                    val enabled = choice == AudioInputChoice.PHONE ||
-                        (choice == AudioInputChoice.XIAO && xiaoConfigured)
+                    val enabled = choice != AudioInputChoice.XIAO || xiaoConfigured
                     val supporting = when (choice) {
                         AudioInputChoice.PHONE -> "Built-in microphone"
-                        AudioInputChoice.BLUETOOTH -> "Setup required · capture support is coming"
+                        AudioInputChoice.BLUETOOTH -> "Uses a connected Bluetooth microphone"
                         AudioInputChoice.XIAO -> if (xiaoConfigured) "Configured on your local network" else "Setup required"
                     }
                     Row(

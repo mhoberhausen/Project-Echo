@@ -8,6 +8,11 @@ import androidx.work.WorkManager
 import com.mobileobie.echo.data.SessionRepository
 import com.mobileobie.echo.model.SessionRecord
 import com.mobileobie.echo.model.SessionStatus
+import com.mobileobie.echo.model.ProcessingFailure
+import com.mobileobie.echo.model.ProcessingStage
+import com.mobileobie.echo.model.StageProgress
+import com.mobileobie.echo.model.StageState
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +53,29 @@ class TranscriptionQueue(
     }
 
     suspend fun recover() {
+        repository.refresh()
+        repository.sessions.value
+            .filter { it.status == SessionStatus.TRANSCRIPTION_FAILED }
+            .filter { it.audioPath?.let(::File)?.isFile == false }
+            .forEach { session ->
+                val previous = session.processing.stage(ProcessingStage.TRANSCRIPTION)
+                repository.updateProcessing(
+                    session.id,
+                    session.processing.withStage(
+                        ProcessingStage.TRANSCRIPTION,
+                        StageProgress(
+                            state = StageState.FAILED,
+                            attempts = previous.attempts,
+                            failure = ProcessingFailure(
+                                stage = ProcessingStage.TRANSCRIPTION,
+                                retryable = false,
+                                userMessage = "The recording file is no longer available, so it cannot be transcribed.",
+                                debugCode = "source_audio_missing",
+                            ),
+                        ),
+                    ),
+                )
+            }
         repository.refresh()
         repository.sessions.value
             .filter { it.status in setOf(SessionStatus.CAPTURING, SessionStatus.TRANSCRIBING) && !it.audioPath.isNullOrBlank() }

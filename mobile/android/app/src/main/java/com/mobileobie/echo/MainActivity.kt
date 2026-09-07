@@ -20,12 +20,15 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.lifecycleScope
 import com.mobileobie.echo.audio.AndroidAudioRecorder
+import com.mobileobie.echo.audio.BluetoothAudioRecorder
 import com.mobileobie.echo.active.ActiveListeningController
 import com.mobileobie.echo.active.ActiveListeningRuntime
 import com.mobileobie.echo.active.ActiveListeningState
 import com.mobileobie.echo.active.ActiveListeningSource
 import com.mobileobie.echo.external.ExternalDeviceEndpoint
+import com.mobileobie.echo.external.PuckBleTestSoundClient
 import com.mobileobie.echo.interpretation.GemmaTranscriptInterpreter
 import com.mobileobie.echo.interpretation.OpenAiLanTranscriptInterpreter
 import com.mobileobie.echo.interpretation.SelectedTranscriptInterpreter
@@ -37,6 +40,7 @@ import com.mobileobie.echo.ui.HuhTheme
 import com.mobileobie.echo.ui.HuhApp
 import com.mobileobie.echo.ui.RecorderViewModel
 import com.mobileobie.echo.ui.RecorderViewModelFactory
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,6 +111,12 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(container.externalDeviceSettings.endpoint)
             }
             var pendingExternalEndpoint by remember { mutableStateOf<ExternalDeviceEndpoint?>(null) }
+            var pendingManualPuckEndpoint by remember { mutableStateOf<ExternalDeviceEndpoint?>(null) }
+            var pendingMicrophoneInput by remember { mutableStateOf(AudioInputChoice.PHONE) }
+            var pendingPuckTest by remember { mutableStateOf(false) }
+            var puckTestFeedback by remember { mutableStateOf<String?>(null) }
+            var puckTestInProgress by remember { mutableStateOf(false) }
+            val puckTestClient = remember { PuckBleTestSoundClient(applicationContext) }
             var selectedAudioInput by remember { mutableStateOf(container.selectionSettings.audioInput) }
             var aiProviders by remember { mutableStateOf(container.selectionSettings.aiProviders) }
             var telemetryConsent by remember { mutableStateOf(container.telemetrySettings.consent) }
@@ -117,11 +127,27 @@ class MainActivity : ComponentActivity() {
                     isAppearanceLightNavigationBars = !darkTheme
                 }
             }
+            val startSelectedMicrophoneCapture: (AudioInputChoice) -> Unit = { input ->
+                when (input) {
+                    AudioInputChoice.BLUETOOTH -> recorderViewModel.startBluetoothRecording(
+                        BluetoothAudioRecorder(applicationContext),
+                    )
+                    else -> recorderViewModel.startRecording()
+                }
+            }
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()
             ) { granted ->
-                if (granted) recorderViewModel.startRecording()
+                if (granted) startSelectedMicrophoneCapture(pendingMicrophoneInput)
                 else recorderViewModel.permissionDenied()
+            }
+            val puckManualNetworkPermissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                val endpoint = pendingManualPuckEndpoint
+                pendingManualPuckEndpoint = null
+                if (granted && endpoint != null) recorderViewModel.startPuckRecording(endpoint)
+                else recorderViewModel.puckLocalNetworkPermissionDenied()
             }
             val activePermissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
@@ -163,6 +189,31 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            fun runPuckTest() {
+                puckTestInProgress = true
+                puckTestFeedback = null
+                lifecycleScope.launch {
+                    puckTestFeedback = when (val result = puckTestClient.playTestSound(externalEndpoint.expectedDeviceId)) {
+                        PuckBleTestSoundClient.Result.Success -> "Test sound sent. Look for the Puck light or listen for its chime."
+                        is PuckBleTestSoundClient.Result.Unavailable -> result.message
+                    }
+                    puckTestInProgress = false
+                }
+            }
+            val puckPermissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestMultiplePermissions(),
+            ) { grants ->
+                if (!pendingPuckTest) return@rememberLauncherForActivityResult
+                pendingPuckTest = false
+                val scanGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                    grants[Manifest.permission.BLUETOOTH_SCAN] == true ||
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+                val connectGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                    grants[Manifest.permission.BLUETOOTH_CONNECT] == true ||
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+                if (scanGranted && connectGranted) runPuckTest()
+                else puckTestFeedback = "Bluetooth permission is required to test your Huh? Puck."
+            }
             val aiNetworkPermissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()
             ) { granted ->
@@ -203,12 +254,30 @@ class MainActivity : ComponentActivity() {
                     onRecord = {
                         if (activeListening.state != ActiveListeningState.OFF) {
                             recorderViewModel.activeListeningBlocksManualRecording()
-                        } else if (ContextCompat.checkSelfPermission(
-                                this,
-                                Manifest.permission.RECORD_AUDIO,
-                            ) == PackageManager.PERMISSION_GRANTED
-                        ) recorderViewModel.startRecording()
-                        else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else when (selectedAudioInput) {
+                            AudioInputChoice.XIAO -> {
+                                if (!externalEndpoint.isConfigured) {
+                                    recorderViewModel.externalDeviceNotConfigured()
+                                } else if (Build.VERSION.SDK_INT >= 37 && ContextCompat.checkSelfPermission(
+                                        this, Manifest.permission.ACCESS_LOCAL_NETWORK,
+                                    ) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    pendingManualPuckEndpoint = externalEndpoint
+                                    puckManualNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                                } else recorderViewModel.startPuckRecording(externalEndpoint)
+                            }
+                            AudioInputChoice.PHONE, AudioInputChoice.BLUETOOTH -> {
+                                if (ContextCompat.checkSelfPermission(
+                                        this,
+                                        Manifest.permission.RECORD_AUDIO,
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                ) startSelectedMicrophoneCapture(selectedAudioInput)
+                                else {
+                                    pendingMicrophoneInput = selectedAudioInput
+                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        }
                     },
                     onStop = recorderViewModel::stopRecording,
                     onClear = recorderViewModel::clear,
@@ -334,24 +403,23 @@ class MainActivity : ComponentActivity() {
                         container.externalDeviceSettings.forget()
                         externalEndpoint = container.externalDeviceSettings.endpoint
                     },
+                    puckTestFeedback = puckTestFeedback,
+                    puckTestInProgress = puckTestInProgress,
+                    onTestPuck = {
+                        val scanGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+                        val connectGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+                        if (scanGranted && connectGranted) runPuckTest()
+                        else {
+                            pendingPuckTest = true
+                            puckPermissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT))
+                        }
+                    },
                     selectedAudioInput = selectedAudioInput,
                     onAudioInputSelected = { choice ->
                         selectedAudioInput = choice
                         container.selectionSettings.audioInput = choice
-                        if (choice == AudioInputChoice.XIAO && externalEndpoint.host.isNotBlank()) {
-                            pendingExternalEndpoint = externalEndpoint
-                            val permissions = buildList {
-                                if (Build.VERSION.SDK_INT >= 37) add(Manifest.permission.ACCESS_LOCAL_NETWORK)
-                                if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-                            }
-                            if (permissions.isEmpty()) {
-                                pendingExternalEndpoint = null
-                                ActiveListeningRuntime.update(
-                                    ActiveListeningState.ERROR,
-                                    "Huh? Puck live capture is not available in this release.",
-                                )
-                            } else externalPermissionLauncher.launch(permissions.toTypedArray())
-                        }
                     },
                     aiProviders = aiProviders,
                     onAiProvidersChanged = {

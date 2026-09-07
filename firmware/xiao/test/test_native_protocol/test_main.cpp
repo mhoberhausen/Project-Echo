@@ -7,6 +7,7 @@
 
 #include "audio/AudioFrame.h"
 #include "protocol/HuhAudioProtocol.h"
+#include "device/HardwareControlProtocol.h"
 #include "protocol/HuhMessageWriter.h"
 
 using huh::audio::AudioFrame;
@@ -194,6 +195,21 @@ void testStreamSessionAdvancesExactlyOneFrame() {
   TEST_ASSERT_EQUAL_UINT8(0x40, second[43]);
 }
 
+void testHardwareControlParsesTestSoundAndRejectsMalformedInput() {
+  const uint8_t command[] = {'H', 'H', 'C', '1', 0x78, 0x56, 0x34, 0x12,
+                             'P', 'L', 'A', 'Y', '_', 'T', 'E', 'S', 'T',
+                             '_', 'S', 'O', 'U', 'N', 'D'};
+  huh::device::HardwareControlRequest request;
+  TEST_ASSERT_TRUE(huh::device::parseHardwareControlRequest(
+      command, sizeof(command), request));
+  TEST_ASSERT_EQUAL_UINT32(0x12345678, request.requestId);
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<uint8_t>(huh::device::HardwareControlCommand::kPlayTestSound),
+      static_cast<uint8_t>(request.command));
+  TEST_ASSERT_FALSE(huh::device::parseHardwareControlRequest(
+      command, sizeof(command) - 1, request));
+}
+
 }  // namespace
 
 void setUp() {}
@@ -208,5 +224,6 @@ int main(int, char**) {
   RUN_TEST(testOversizedPayloadIsRejected);
   RUN_TEST(testWriterHandlesSplitTransportWrites);
   RUN_TEST(testStreamSessionAdvancesExactlyOneFrame);
+  RUN_TEST(testHardwareControlParsesTestSoundAndRejectsMalformedInput);
   return UNITY_END();
 }

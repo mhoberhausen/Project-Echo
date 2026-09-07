@@ -6,6 +6,8 @@
 #include <BLESecurity.h>
 #include <BLEServer.h>
 
+#include "DeviceConfig.h"
+
 namespace huh::device {
 namespace {
 
@@ -15,21 +17,48 @@ constexpr char kStatusUuid[] = "7d2e0003-6f9b-4af7-ae8c-5e4f48554831";
 constexpr char kCommandUuid[] = "7d2e0004-6f9b-4af7-ae8c-5e4f48554831";
 constexpr char kResponseUuid[] = "7d2e0005-6f9b-4af7-ae8c-5e4f48554831";
 
-class ServerCallbacks final : public BLEServerCallbacks {
- public:
-  void onConnect(BLEServer*) override { Serial.println("BLE controller connected; authentication required for control."); }
-  void onDisconnect(BLEServer* server) override {
-    Serial.println("BLE controller disconnected.");
-    server->startAdvertising();
+const char* commandName(HardwareControlCommand command) {
+  switch (command) {
+    case HardwareControlCommand::kStatus: return "STATUS";
+    case HardwareControlCommand::kStart: return "START";
+    case HardwareControlCommand::kPause: return "PAUSE";
+    case HardwareControlCommand::kResume: return "RESUME";
+    case HardwareControlCommand::kStop: return "STOP";
+    case HardwareControlCommand::kPlayTestSound: return "PLAY_TEST_SOUND";
+    case HardwareControlCommand::kUnknown: return "UNKNOWN";
   }
+  return "UNKNOWN";
+}
+
+struct BleDiagnostic {
+  char text[96];
 };
 
-class SecurityCallbacks final : public BLESecurityCallbacks {
+class BleServerCallbacks final : public BLEServerCallbacks {
  public:
+  explicit BleServerCallbacks(BleControlService& owner) : owner_(owner) {}
+  void onConnect(BLEServer*) override {
+    Serial.println("BLE controller connected; authentication required for control.");
+    owner_.recordDiagnostic("connected authentication_required=true");
+  }
+  void onDisconnect(BLEServer* server) override {
+    Serial.println("BLE controller disconnected.");
+    owner_.recordDiagnostic("disconnected");
+    server->startAdvertising();
+  }
+ private:
+  BleControlService& owner_;
+};
+
+class BleSecurityCallbacks final : public BLESecurityCallbacks {
+ public:
+  explicit BleSecurityCallbacks(BleControlService& owner) : owner_(owner) {}
   bool onSecurityRequest() override { return true; }
 #if defined(CONFIG_BLUEDROID_ENABLED)
   void onAuthenticationComplete(esp_ble_auth_cmpl_t result) override {
     Serial.printf("BLE authentication %s.\n", result.success ? "succeeded" : "failed");
+    owner_.recordDiagnostic(result.success ? "authentication result=success" :
+                                             "authentication result=failure");
   }
 #endif
 #if defined(CONFIG_NIMBLE_ENABLED)
@@ -37,8 +66,12 @@ class SecurityCallbacks final : public BLESecurityCallbacks {
     const bool success = result != nullptr && result->sec_state.encrypted &&
                          result->sec_state.authenticated && result->sec_state.bonded;
     Serial.printf("BLE authentication %s.\n", success ? "succeeded" : "failed");
+    owner_.recordDiagnostic(success ? "authentication result=success" :
+                                      "authentication result=failure");
   }
 #endif
+ private:
+  BleControlService& owner_;
 };
 
 }  // namespace
@@ -54,17 +87,21 @@ class BleCommandCallbacks final : public BLECharacteristicCallbacks {
 };
 
 bool BleControlService::begin(const protocol::HelloInfo& identity) {
+  diagnostics_ = xQueueCreate(8, sizeof(BleDiagnostic));
   BLEDevice::init(identity.displayName.c_str());
   BLESecurity security;
-  const uint32_t passkey = security.setPassKey(false);
+  static_assert(config::kBleStaticPasskey <= 999999,
+                "HUH_BLE_STATIC_PASSKEY must contain at most six digits");
+  const uint32_t passkey = security.setPassKey(
+      config::kBleUseStaticPasskey, config::kBleStaticPasskey);
   security.setCapability(ESP_IO_CAP_OUT);
   security.setAuthenticationMode(true, true, true);
   security.setKeySize(16);
-  BLEDevice::setSecurityCallbacks(new SecurityCallbacks());
+  BLEDevice::setSecurityCallbacks(new BleSecurityCallbacks(*this));
 
   BLEServer* server = BLEDevice::createServer();
   if (server == nullptr) return false;
-  server->setCallbacks(new ServerCallbacks());
+  server->setCallbacks(new BleServerCallbacks(*this));
   server->advertiseOnDisconnect(true);
   BLEService* service = server->createService(kServiceUuid);
   if (service == nullptr) return false;
@@ -101,23 +138,51 @@ bool BleControlService::begin(const protocol::HelloInfo& identity) {
   advertising->setMinPreferred(0x06);
   advertising->setMaxPreferred(0x12);
   BLEDevice::startAdvertising();
-  Serial.printf("BLE control advertising; pairing passkey=%06lu (USB serial only).\n",
-                static_cast<unsigned long>(passkey));
+  Serial.printf("BLE control advertising; pairing passkey=%06lu (%s).\n",
+                static_cast<unsigned long>(passkey),
+                config::kBleUseStaticPasskey ? "configured static PIN" : "USB serial only");
   return true;
 }
 
 void BleControlService::receive(const uint8_t* bytes, size_t length) {
   HardwareControlRequest request;
   if (!parseHardwareControlRequest(bytes, length, request)) {
+    recordDiagnostic("command rejected=invalid_request");
     publishResponse(0, "INVALID_REQUEST");
     return;
   }
   if (pendingCommand_.load() != static_cast<uint8_t>(HardwareControlCommand::kUnknown)) {
+    recordDiagnostic("command rejected=busy");
     publishResponse(request.requestId, "BUSY");
     return;
   }
   pendingRequestId_.store(request.requestId);
   pendingCommand_.store(static_cast<uint8_t>(request.command));
+  char diagnostic[96];
+  snprintf(diagnostic, sizeof(diagnostic), "command received=%s request_id=%lu",
+           commandName(request.command), static_cast<unsigned long>(request.requestId));
+  recordDiagnostic(diagnostic);
+}
+
+void BleControlService::recordDiagnostic(const char* event) {
+  if (diagnostics_ == nullptr || event == nullptr) return;
+  BleDiagnostic diagnostic{};
+  strlcpy(diagnostic.text, event, sizeof(diagnostic.text));
+  // BLE callbacks must never wait for diagnostics. If full, discard the oldest
+  // event so the most recent state remains observable.
+  if (xQueueSend(diagnostics_, &diagnostic, 0) != pdTRUE) {
+    BleDiagnostic discarded{};
+    xQueueReceive(diagnostics_, &discarded, 0);
+    xQueueSend(diagnostics_, &diagnostic, 0);
+  }
+}
+
+bool BleControlService::takeDiagnostic(String& diagnostic) {
+  if (diagnostics_ == nullptr) return false;
+  BleDiagnostic event{};
+  if (xQueueReceive(diagnostics_, &event, 0) != pdTRUE) return false;
+  diagnostic = event.text;
+  return true;
 }
 
 bool BleControlService::takeRequest(HardwareControlRequest& request) {
@@ -141,6 +206,10 @@ void BleControlService::publishResponse(uint32_t requestId, const char* result) 
   if (response_ == nullptr) return;
   response_->setValue(String("v1|") + requestId + "|" + result);
   response_->notify();
+  char diagnostic[96];
+  snprintf(diagnostic, sizeof(diagnostic), "response request_id=%lu result=%s",
+           static_cast<unsigned long>(requestId), result == nullptr ? "UNKNOWN" : result);
+  recordDiagnostic(diagnostic);
 }
 
 }  // namespace huh::device

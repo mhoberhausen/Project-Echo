@@ -69,13 +69,12 @@ diagnostics and anonymous product insights are optional, independently controlle
 default. They never receive audio, transcripts, timestamps, speaker/session names, inferred
 content, prompts, AI responses, local endpoint addresses, credentials, or settings values.
 
-## Optional developer support
+## Help and optional developer support
 
-Huh? has no subscription, premium tier, feature gate, quota, or donor-specific behavior. When a
-public developer-support destination is configured in `support_developer_url`, Settings exposes a
-small optional **Support Huh?** entry that opens that HTTPS address in the Android browser. The
-app does not process payments, record support activity, or send support data. The entry remains
-unavailable until a destination is explicitly configured.
+Huh? has no subscription, premium tier, feature gate, quota, or donor-specific behavior. Settings
+includes **Help & support**, which opens the public [Huh? support page](https://mobileobie.com/apps/huh/support/)
+in the Android browser. The page can provide app help and an optional way to support the developer;
+the app does not process payments, record support activity, or send support data.
 
 ## Optional Firebase diagnostics
 

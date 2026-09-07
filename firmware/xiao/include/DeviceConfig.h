@@ -31,6 +31,13 @@ constexpr uint32_t kFrameDiagnosticInterval = 500;
 constexpr BaseType_t kAudioCaptureCore = 0;
 
 constexpr uint16_t kTcpAudioPort = 8765;
+constexpr uint16_t kDiagnosticPort = 8766;
+constexpr uint32_t kDiagnosticIntervalMs = 2000;
+constexpr uint16_t kOtaPort = 3232;
+#ifndef HUH_OTA_PASSWORD
+#define HUH_OTA_PASSWORD "REDACTED_CREDENTIAL"
+#endif
+constexpr char kOtaPassword[] = HUH_OTA_PASSWORD;
 constexpr uint32_t kHeartbeatIntervalMs = 5000;
 // Android renews the active capture lease at kHeartbeatIntervalMs. Capture is
 // finalized safely if no matching control heartbeat arrives before this limit.
@@ -46,5 +53,26 @@ constexpr int kTcpKeepaliveProbeCount = 3;
 constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 constexpr uint32_t kWifiRetryIntervalMs = 30000;
 constexpr size_t kMaximumSerialCommandBytes = 96;
+
+// Optional passive-piezo verification output. D1 maps to GPIO2 on the XIAO
+// ESP32S3 and is unused by the microphone and microSD configuration above.
+// Set to -1 at build time with HUH_TEST_TONE_PIN=-1 to disable it.
+#ifndef HUH_TEST_TONE_PIN
+#define HUH_TEST_TONE_PIN 2
+#endif
+constexpr int kTestTonePin = HUH_TEST_TONE_PIN;
+constexpr int kConnectionTestLedPin = LED_BUILTIN;
+constexpr bool kConnectionTestLedActiveLow = true;
+
+// Development pairing PIN. Override with -DHUH_BLE_STATIC_PASSKEY=<six digits>.
+// Set HUH_BLE_USE_STATIC_PASSKEY=0 to generate a new PIN at each boot.
+#ifndef HUH_BLE_USE_STATIC_PASSKEY
+#define HUH_BLE_USE_STATIC_PASSKEY 1
+#endif
+#ifndef HUH_BLE_STATIC_PASSKEY
+#define HUH_BLE_STATIC_PASSKEY REDACTED_CREDENTIAL
+#endif
+constexpr bool kBleUseStaticPasskey = HUH_BLE_USE_STATIC_PASSKEY != 0;
+constexpr uint32_t kBleStaticPasskey = HUH_BLE_STATIC_PASSKEY;
 
 }  // namespace config

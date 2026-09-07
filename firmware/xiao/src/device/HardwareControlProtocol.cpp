@@ -19,6 +19,7 @@ bool parseHardwareControlRequest(const uint8_t* bytes, size_t length,
   else if (verbLength == 5 && memcmp(bytes + 8, "PAUSE", 5) == 0) request.command = HardwareControlCommand::kPause;
   else if (verbLength == 6 && memcmp(bytes + 8, "RESUME", 6) == 0) request.command = HardwareControlCommand::kResume;
   else if (verbLength == 4 && memcmp(bytes + 8, "STOP", 4) == 0) request.command = HardwareControlCommand::kStop;
+  else if (verbLength == 15 && memcmp(bytes + 8, "PLAY_TEST_SOUND", 15) == 0) request.command = HardwareControlCommand::kPlayTestSound;
   else return false;
   return true;
 }

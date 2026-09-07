@@ -38,6 +38,23 @@ supports `--list-captures` and non-destructive validation with `--retain-on-devi
 This is still an unauthenticated trusted-LAN POC; BLE pairing/control is
 future work.
 
+## Optional BLE connection chime
+
+The authenticated `PLAY_TEST_SOUND` control command flashes the onboard LED in a short
+ascending-chime pattern and, when attached, plays the same pattern on a passive piezo without
+blocking BLE, Wi-Fi, or audio capture. The XIAO ESP32S3 Sense has no onboard speaker; connect
+a passive piezo between D1/GPIO2 and GND. Do not connect a low-impedance speaker directly to
+the GPIO. Override `HUH_TEST_TONE_PIN` at build time, or set it to `-1` to disable playback.
+The same output can be exercised over USB serial with `signal test` during hardware setup.
+
+## BLE pairing PIN
+
+Development firmware uses the static six-digit PIN `REDACTED_CREDENTIAL`. Override it with the build flag
+`-DHUH_BLE_STATIC_PASSKEY=123456`, substituting the desired six-digit value. Set
+`-DHUH_BLE_USE_STATIC_PASSKEY=0` to restore a randomly generated PIN printed over USB serial.
+A fixed PIN is convenient for the personal POC but should be replaced by per-device setup
+credentials before distributing hardware.
+
 ## One-time Wi-Fi setup
 
 After uploading the default build, open the PlatformIO serial monitor at 115200 baud. A
@@ -97,6 +114,37 @@ board revisions and examples use both mappings.
 
 If upload cannot find the board, hold **BOOT**, tap **RESET**, release **BOOT**, and
 try the upload again.
+
+### Wireless diagnostics and updates
+
+After one successful USB upload and Wi-Fi provisioning, the production firmware exposes
+two direct-IP development services. Neither service advertises through mDNS.
+
+- PlatformIO-compatible diagnostics: TCP port `8766`
+- Password-protected Arduino OTA: UDP port `3232`
+
+Monitor the board without USB using the current IP printed by `wifi status`:
+
+```text
+pio device monitor --port socket://192.0.2.1:8766
+```
+
+The stream reports readiness/capture state, IP and RSSI, SD availability, OTA readiness,
+stream counters, uptime, and free heap every two seconds. Writes are non-blocking and
+bounded so a slow diagnostics client cannot stall capture.
+
+Upload over Wi-Fi using the `xiao_esp32s3_sense_ota` environment:
+
+```text
+pio run -e xiao_esp32s3_sense_ota -t upload
+```
+
+That environment currently targets `192.0.2.1`; update `upload_port` and
+`monitor_port` in `platformio.ini` if DHCP changes the address. The development OTA PIN
+defaults to `REDACTED_CREDENTIAL`, matching the current development BLE PIN. Override
+`HUH_OTA_PASSWORD` and the environment's `--auth` value together before using this beyond
+a private trusted LAN. OTA invitations are accepted only while capture and its controller
+connection are idle. USB remains the recovery path for a failed or incompatible image.
 
 ## Expected recording
 

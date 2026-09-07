@@ -44,6 +44,7 @@ bool SdWavRecorder::begin() {
     if (SD.begin(chipSelect, SPI, config::kSdFrequencyHz) &&
         SD.cardType() != CARD_NONE) {
       mounted_ = true;
+      chipSelectPin_ = chipSelect;
       if (!SD.exists(config::kCaptureDirectory) &&
           !SD.mkdir(config::kCaptureDirectory)) {
         Serial.println("ERROR: Could not create /captures on microSD.");
@@ -179,6 +180,7 @@ void SdWavRecorder::end() {
   if (output_) output_.close();
   if (mounted_) SD.end();
   mounted_ = false;
+  chipSelectPin_ = -1;
 }
 
 String SdWavRecorder::uuidText(const protocol::StreamUuid& stream) {

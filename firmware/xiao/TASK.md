@@ -226,6 +226,10 @@ exact size must be measured against PSRAM use, capture stability, and reconnecti
 - [x] Connect to the provisioned trusted LAN and print the assigned local IP clearly.
 - [x] Add a XIAO-hosted TCP server on port `8765`.
 - [ ] Advertise the service through mDNS when using shared-LAN discovery.
+- [x] Add direct-IP, password-protected PlatformIO OTA on UDP port `3232`; disable mDNS
+  advertisement and accept new updates only while capture/controller activity is idle.
+- [x] Add a bounded PlatformIO-compatible diagnostics socket on TCP port `8766` for
+  wireless state, RSSI, SD, OTA, stream-counter, uptime, heap, and capture-state monitoring.
 - [x] Use a fixed, documented TCP port (`8765`).
 - [x] Send `HELLO` immediately after the Android TCP client connects.
 - [x] For this one-way POC, treat an accepted TCP connection as receiver readiness before
@@ -298,6 +302,9 @@ HUH1 TCP server: 8765
 - [ ] Support all commands for status, configure network, start, pause, resume, and turn off.
   `STATUS`, `PAUSE`, and `STOP` are wired; `START`/`RESUME` explicitly require the TCP
   stream handshake, and BLE Wi-Fi configuration remains pending.
+- [x] Add authenticated `PLAY_TEST_SOUND` delivery with request-ID response, non-blocking
+  onboard-LED feedback, optional passive-piezo playback on D1/GPIO2, and busy/unavailable
+  failure responses.
 - [ ] Require an authenticated BLE `KEEP_ALIVE` every 5 seconds while listening and expire
   the capture lease after 15 seconds without renewal.
 - [ ] On BLE disconnect or capture-lease expiry, stop PDM capture and TCP audio, close the
@@ -317,6 +324,8 @@ HUH1 TCP server: 8765
 - [x] Windows read the public identity containing the stable device ID, model, and firmware version.
 - [x] An unpaired Windows client was rejected when reading the authenticated status characteristic.
 - [x] BLE advertising and the existing Wi-Fi HUH1 capture-list service operated concurrently.
+- [x] The shared connection-test output executed on hardware through the USB `signal test`
+  bring-up command; BLE uses the same non-blocking output path.
 
 Success: Android can associate one device, reconnect to it, forget it, and associate a
 second device without accepting audio from an unselected peer.
@@ -390,3 +399,5 @@ the firmware protocol.
 - [ ] Bind the control protocol to authenticated BLE pairing and Android controls.
 - [x] Add protocol-level `LIST_CAPTURES`/`CAPTURE_INFO` recovery and ID/offset transfer for files retained across a device reboot.
 - [x] Validate finalized WAV headers before advertising them and repair aligned `.part` captures after interrupted power at boot.
+- [x] Validate a full authenticated OTA upload by direct IP and reconnect to diagnostics
+  after the automatic reboot, without relying on mDNS.

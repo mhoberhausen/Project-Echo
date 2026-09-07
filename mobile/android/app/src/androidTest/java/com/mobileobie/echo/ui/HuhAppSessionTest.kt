@@ -148,11 +148,11 @@ class HuhAppSessionTest {
 
         composeRule.onNodeWithContentDescription("Open navigation").performClick()
         composeRule.onNodeWithText("Settings").performClick()
-        composeRule.onNodeWithText("Support the developer").performScrollTo().performClick()
-        composeRule.onNodeWithText("Enjoying Huh??").assertIsDisplayed()
-        composeRule.onNodeWithText("Huh? is free to use. If you'd like to support continued development, you can leave a tip.")
+        composeRule.onNodeWithText("Get help or support Huh?").performScrollTo().performClick()
+        composeRule.onNodeWithText("Help & support").assertIsDisplayed()
+        composeRule.onNodeWithText("Find help using Huh?, or optionally support the developer. Huh? is free to use.")
             .assertIsDisplayed()
-        composeRule.onNodeWithText("Support the developer").performClick()
+        composeRule.onNodeWithText("Open Huh? support").performClick()
         composeRule.runOnIdle { assertEquals(true, supportOpened) }
         composeRule.onNodeWithContentDescription("Navigate back").performClick()
         composeRule.onNodeWithText("Appearance").assertIsDisplayed()

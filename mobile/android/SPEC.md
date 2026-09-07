@@ -36,12 +36,16 @@ Pro running Android 17 on 2026-09-01.
 - [x] Processed-result UI, including transcript disclosure and empty action-item handling
 - [x] No account, cloud transcription, or cloud LLM path; Firebase crash diagnostics and
   anonymous usage insights are independent, explicit opt-ins with a content-free event boundary.
-  Optional developer support is a configured external-browser link only: it has no subscription,
-  donation processing, feature gate, quota, premium state, or support tracking.
+  Help and optional developer support open the public
+  [Huh? support page](https://mobileobie.com/apps/huh/support/) in the browser only; there is no
+  subscription, in-app donation processing, feature gate, quota, premium state, or support
+  tracking.
   `INTERNET` and Android
   17 local-network access are limited to user-configured private-LAN device/AI endpoints
 - [x] Persist an audio-input picker for the phone, with an honest Bluetooth setup placeholder.
-  Huh? Puck live capture is not included in the 0.1.1 Play release.
+  Huh? Puck active/live capture is not included in the 0.1.1 Play release.
+- [x] Provide user-initiated Listen Now capture from a configured trusted-LAN Huh? Puck;
+  it validates HUH1 identity and 16 kHz PCM before local transcription and never runs in the background.
 - [x] Provide a nested AI Selection settings page with persistent enablement and drag ordering;
   bundled Gemma and unauthenticated OpenAI-compatible private-LAN endpoints execute in priority
   order with fallback, while third-party/cloud entries remain configuration-only
@@ -69,7 +73,7 @@ Pro running Android 17 on 2026-09-01.
 
 ### Future scope, deliberately excluded from 0.1.1
 
-- [ ] Reintroduce Huh? Puck live capture only after its release-ready foreground-service and
+- [ ] Reintroduce Huh? Puck active/live capture only after its release-ready foreground-service and
   device-association design is complete.
 - [ ] Add authenticated Puck association and discovery after the firmware control/identity
   contract is frozen.

@@ -4,6 +4,7 @@ import com.mobileobie.echo.model.ProcessedMessage
 import com.mobileobie.echo.model.SessionRecord
 import com.mobileobie.echo.model.SessionStatus
 import com.mobileobie.echo.model.TranscriptSegment
+import com.mobileobie.echo.model.SessionProcessing
 import kotlinx.coroutines.flow.StateFlow
 
 interface SessionRepository {
@@ -13,6 +14,7 @@ interface SessionRepository {
     suspend fun create(session: SessionRecord)
     suspend fun updateCapturedSession(session: SessionRecord)
     suspend fun updateStatus(id: String, status: SessionStatus)
+    suspend fun updateProcessing(id: String, processing: SessionProcessing)
     suspend fun saveProcessed(id: String, message: ProcessedMessage)
     suspend fun updateTitle(id: String, title: String)
     suspend fun updateTranscript(id: String, transcript: String)

@@ -8,7 +8,9 @@ namespace huh::device {
 // Transport-neutral control verbs shared by future BLE and other links.
 // Authentication and pairing are intentionally enforced by the transport
 // adapter; this parser only validates bounded, versioned messages.
-enum class HardwareControlCommand : uint8_t { kUnknown, kStatus, kStart, kPause, kResume, kStop };
+enum class HardwareControlCommand : uint8_t {
+  kUnknown, kStatus, kStart, kPause, kResume, kStop, kPlayTestSound
+};
 
 struct HardwareControlRequest {
   uint8_t version = 0;
